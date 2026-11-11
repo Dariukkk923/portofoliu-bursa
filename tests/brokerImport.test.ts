@@ -1,7 +1,7 @@
 /**
  * Teste pentru preluarea pozițiilor din raportul XTB (xStation): cititorul de
- * fișiere Excel, interpretarea raportului și importul propriu-zis (fără dubluri
- * la reimport, dividende în moneda activului, istoric incomplet, backup).
+ * fișiere Excel, interpretarea raportului și importul lui prin ecranul Import
+ * (fără dubluri la reimport, dividende în moneda activului, istoric incomplet, backup).
  */
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -18,7 +18,7 @@ import { createAesBox } from '@main/secrets';
 import { looksLikeZip, readXlsx, XlsxError } from '@main/xlsx';
 import { register } from '@main/services/auth';
 import { createBackup, restoreBackup } from '@main/services/backup';
-import { applyXtbImport, previewXtbImport, readXtbFile, type SymbolLookup } from '@main/services/brokerImport';
+import { applyImport, openImport, previewImport, readImportFile, type ImportLookup } from '@main/services/statementImport';
 import { createBroker, listBrokers } from '@main/services/brokers';
 import { listAssets } from '@main/services/assets';
 import { addPurchase, listTransactions } from '@main/services/transactions';
@@ -168,13 +168,21 @@ const KNOWN: Record<string, { currency: string; assetType: 'stock' | 'etf'; name
   NVDA: { currency: 'USD', assetType: 'stock', name: 'NVIDIA Corporation' },
   'ZAL.DE': { currency: 'EUR', assetType: 'stock', name: 'Zalando SE' }
 };
-const lookup: SymbolLookup = async (symbols) => ({
-  quotes: new Map(symbols.filter((s) => KNOWN[s]).map((s) => [s, KNOWN[s]])),
-  offline: false
-});
-const offlineLookup: SymbolLookup = async () => {
-  throw new Error('fără rețea');
+const lookup: ImportLookup = {
+  quotes: async (symbols) => ({ quotes: new Map(symbols.filter((s) => KNOWN[s]).map((s) => [s, KNOWN[s]])), offline: false }),
+  search: async () => []
 };
+const offlineLookup: ImportLookup = {
+  quotes: async () => {
+    throw new Error('fără rețea');
+  },
+  search: async () => {
+    throw new Error('fără rețea');
+  }
+};
+
+/** Fișierul ales (Excel sau CSV), citit ca la import și interpretat ca raport XTB. */
+const readXtbFile = (data: Buffer, fileName: string) => parseXtbReport(readImportFile(data), fileName);
 
 /* --------------------------------------------------------- cititorul .xlsx */
 
@@ -244,9 +252,11 @@ describe('interpretarea raportului XTB', () => {
     expect(dividend).toMatchObject({ id: '623424923', amount: 4.6, perShare: 0.5, perShareCurrency: 'USD' });
     expect(dividend.tax).toBeCloseTo(0.69, 10);
 
-    expect(report.ignored).toEqual([
-      { label: 'Free funds interests', count: 1, symbols: [] },
-      { label: 'Deposit', count: 1, symbols: [] }
+    // Depunerile și dobânzile la cash sunt operațiuni de cash, nu se mai ignoră.
+    expect(report.ignored).toEqual([]);
+    expect(report.cash.map((c) => `${c.date} ${c.kind} ${c.amount} ${c.label}`)).toEqual([
+      '2023-01-02 deposit 5000 Deposit',
+      '2024-10-01 interest 0.42 Free funds interests'
     ]);
   });
 
@@ -264,10 +274,8 @@ describe('interpretarea raportului XTB', () => {
     expect((report.operations[2] as XtbDividend).tax).toBeCloseTo(1.15, 10);
     // Pozițiile deschise se adună pe simbol; rândul „Total” nu este o poziție.
     expect(report.openPositions).toEqual({ 'AAPL.US': 10, 'SPYL.DE': 100, 'MSFT.US': 3 });
-    expect(report.ignored).toEqual([
-      { label: 'deposit', count: 1, symbols: [] },
-      { label: 'swap', count: 1, symbols: ['EURUSD'] }
-    ]);
+    expect(report.ignored).toEqual([{ label: 'swap', count: 1, symbols: ['EURUSD'] }]);
+    expect(report.cash.map((c) => `${c.kind} ${c.amount}`)).toEqual(['deposit 20000']);
   });
 
   it('citește exportul actual al xStation: coloanele Ticker și Category, comentarii cu simbol', () => {
@@ -286,7 +294,9 @@ describe('interpretarea raportului XTB', () => {
     expect(report.operations[1]).toMatchObject({ quantity: 1.5, price: 180 });
     expect(report.operations[3]).toMatchObject({ id: '1000000005', quantity: 0.2345, price: 700.5 });
     expect(report.operations[4]).toMatchObject({ kind: 'sell', quantity: 1.5, price: 195, amount: 292.5 });
-    expect(report.ignored.map((i) => `${i.label} ${i.count}`).sort()).toEqual(['Deposit 1', 'Free funds interest 1', 'Transfer 1']);
+    expect(report.ignored).toEqual([]);
+    // Transferul spre alt subcont (conversia în GBP) scoate bani din acest cont: retragere.
+    expect(report.cash.map((c) => `${c.date} ${c.kind} ${c.amount}`)).toEqual(['2026-01-05 deposit 3000', '2026-04-01 interest 1.12', '2026-04-02 withdrawal 50']);
     // Rândul de total pe instrument nu se adună cu pozițiile lui.
     expect(report.openPositions).toEqual({ 'CSPX.UK': 1.2345, 'NVDA.US': 2 });
     // Fără foaia „Open Positions”, moneda se ia din numele fișierului.
@@ -309,9 +319,12 @@ describe('interpretarea raportului XTB', () => {
 
   it('explică de ce un fișier nu poate fi folosit', () => {
     expect(() => parseXtbReport([{ name: '', rows: parseCsv('nume;varsta\nIon;40\nAna;35') }])).toThrow(/nu arată ca un raport XTB/);
+    // Un raport doar cu depuneri este valid (cash-ul se urmărește), dar unul fără nicio operațiune nu.
     const onlyCash = 'ID;Type;Time;Symbol;Comment;Amount\n1;Deposit;02.01.2023 10:00:00;;Deposit;5000';
-    expect(() => parseXtbReport([{ name: '', rows: parseCsv(onlyCash) }])).toThrow(XtbParseError);
-    expect(() => parseXtbReport([{ name: '', rows: parseCsv(onlyCash) }])).toThrow(/nu conține cumpărări/);
+    expect(parseXtbReport([{ name: '', rows: parseCsv(onlyCash) }]).cash).toHaveLength(1);
+    const nothing = 'ID;Type;Time;Symbol;Comment;Amount\n1;Swap;02.01.2023 10:00:00;EURUSD;Swap;-1';
+    expect(() => parseXtbReport([{ name: '', rows: parseCsv(nothing) }])).toThrow(XtbParseError);
+    expect(() => parseXtbReport([{ name: '', rows: parseCsv(nothing) }])).toThrow(/nu conține cumpărări/);
     expect(() => readXtbFile(Buffer.from('%PDF-1.7 ...'), 'raport.pdf')).toThrow(/PDF/);
     expect(() => readXtbFile(Buffer.from('<html><body><table></table></body></html>'), 'raport.html')).toThrow(/HTML/);
     expect(() => readXtbFile(Buffer.alloc(0), 'gol.xlsx')).toThrow(/gol/);
@@ -359,16 +372,18 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  for (const table of ['transactions', 'broker_symbols', 'assets', 'brokers', 'prices', 'price_history', 'history_sync']) {
+  for (const table of ['transactions', 'broker_symbols', 'import_batches', 'import_templates', 'assets', 'brokers', 'prices', 'price_history', 'history_sync']) {
     db.prepare(`DELETE FROM ${table}`).run();
   }
 });
 
-/** Alege fișierul și importă, ca butonul din aplicație. */
+/** Alege fișierul, se uită la previzualizare și importă, ca în ecranul Import. */
 async function importFile(user: User, data: Buffer | string, fileName: string, options = { replaceManual: false }, using = lookup) {
-  const report = readXtbFile(typeof data === 'string' ? Buffer.from(data, 'utf8') : data, fileName);
-  const { preview, session } = await previewXtbImport(db, user.id, report, fileName, 'token', using);
-  return { preview, result: applyXtbImport(db, user.id, session, options) };
+  const tables = readImportFile(typeof data === 'string' ? Buffer.from(data, 'utf8') : data);
+  const session = openImport(db, user.id, tables, fileName, 'token');
+  const { preview } = await previewImport(db, user.id, session, options, using);
+  if (!preview) throw new Error('fără previzualizare');
+  return { preview, result: applyImport(db, user.id, session, options) };
 }
 
 const quantities = (userId: number): Record<string, number> =>
@@ -380,24 +395,31 @@ describe('importul raportului XTB', () => {
 
     expect(preview).toMatchObject({
       fileName: CSV_NAME,
+      format: 'xtb',
       brokerName: 'XTB',
-      dateFrom: '2023-07-25',
-      dateTo: '2024-09-26',
-      totals: { buys: 6, sells: 1, dividends: 2, alreadyImported: 0 },
-      instruments: 5,
+      accountCurrency: 'EUR',
+      dateFrom: '2023-01-02',
+      dateTo: '2024-10-01',
+      counts: { new: 10, duplicate: 0, error: 1 },
+      byKind: { buy: 6, dividend: 2, interest: 1, deposit: 1 },
       manualCount: 0
     });
+    // Vânzarea ZAL.DE nu are cumpărarea în fișier: rândul este o eroare, restul se importă.
+    expect(preview.instruments.find((i) => i.key === 'ZAL.DE')).toMatchObject({ status: 'incomplete' });
+    expect(preview.rows.find((r) => r.status === 'error')).toMatchObject({ kind: 'sell', symbol: 'ZAL.DE', message: expect.stringMatching(/Lipsesc cumpărări/) });
+    // Impozitul reținut este comasat cu dividendul lui.
+    expect(preview.rows.find((r) => r.kind === 'dividend' && r.symbol === 'META')).toMatchObject({ amount: 5, tax: 0.75, currency: 'USD' });
+
     expect(result).toMatchObject({
       brokerName: 'XTB',
-      imported: 8,
-      buys: 6,
-      sells: 0,
-      dividends: 2,
-      alreadyImported: 0,
+      portfolioName: 'Principal',
+      imported: 10,
+      byKind: { buy: 6, dividend: 2, interest: 1, deposit: 1 },
+      duplicates: 0,
+      errors: 1,
       createdAssets: 4,
       replaced: 0,
       approximated: 0,
-      incomplete: ['ZAL.DE'], // vânzare fără cumpărare: sărit, restul se importă
       unconfirmed: ['META'], // simbol negăsit la furnizorul de prețuri simulat
       offline: false
     });
@@ -419,16 +441,18 @@ describe('importul raportului XTB', () => {
     expect(quantities(alice.id)).toEqual({ 'CSPX.L': 0.1799, GOOGL: 1, META: 10, 'SPYL.DE': 119.5658 });
 
     const txs = listTransactions(db, alice.id);
-    expect(txs).toHaveLength(8);
-    expect(txs.every((t) => t.brokerName === 'XTB' && t.notes === 'Import XTB')).toBe(true);
-    expect(txs.find((t) => t.symbol === 'GOOGL')).toMatchObject({ type: 'buy', date: '2023-07-25', quantity: 1, price: 122.34, fee: 0, currency: 'USD' });
+    expect(txs).toHaveLength(10);
+    expect(txs.every((t) => t.brokerName === 'XTB' && t.portfolioName === 'Principal' && t.notes?.startsWith('Import XTB'))).toBe(true);
+    expect(txs.find((t) => t.symbol === 'GOOGL')).toMatchObject({ type: 'buy', date: '2023-07-25', quantity: 1, price: 122.34, fee: 0, currency: 'USD', cashAmount: -111.25, cashCurrency: 'EUR' });
+    expect(txs.find((t) => t.type === 'deposit')).toMatchObject({ date: '2023-01-02', netAmount: 5000, currency: 'EUR', externalId: 'xtb:100000001' });
+    expect(txs.find((t) => t.type === 'interest')).toMatchObject({ grossAmount: 0.42, currency: 'EUR' });
   });
 
   it('trece dividendele în moneda activului', async () => {
     await importFile(alice, CSV, CSV_NAME);
     const dividends = listTransactions(db, alice.id, { type: 'dividend' });
     // Cont în EUR, acțiune în USD: 10 acțiuni × 0,50 USD = 5 USD brut, 15% impozit.
-    expect(dividends.find((t) => t.symbol === 'META')).toMatchObject({ date: '2024-09-26', grossAmount: 5, taxWithheld: 0.75, netAmount: 4.25, currency: 'USD' });
+    expect(dividends.find((t) => t.symbol === 'META')).toMatchObject({ date: '2024-09-26', grossAmount: 5, taxWithheld: 0.75, netAmount: 4.25, currency: 'USD', cashAmount: 3.91 });
     // Activ în moneda contului: suma din raport, neschimbată.
     expect(dividends.find((t) => t.symbol === 'SPYL.DE')).toMatchObject({ grossAmount: 1.21, taxWithheld: 0, currency: 'EUR' });
   });
@@ -436,9 +460,9 @@ describe('importul raportului XTB', () => {
   it('reimportul nu dublează nimic, iar un raport mai nou adaugă doar ce lipsește', async () => {
     await importFile(alice, CSV, CSV_NAME);
     const again = await importFile(alice, CSV, CSV_NAME);
-    expect(again.preview.totals.alreadyImported).toBe(8);
-    expect(again.result).toMatchObject({ imported: 0, alreadyImported: 8, createdAssets: 0, incomplete: ['ZAL.DE'] });
-    expect(listTransactions(db, alice.id)).toHaveLength(8);
+    expect(again.preview.counts).toMatchObject({ new: 0, duplicate: 10 });
+    expect(again.result).toMatchObject({ imported: 0, duplicates: 10, createdAssets: 0, batchId: null });
+    expect(listTransactions(db, alice.id)).toHaveLength(10);
 
     // Același raport exportat mai târziu: o vânzare parțială și o cumpărare nouă.
     const newer =
@@ -446,34 +470,36 @@ describe('importul raportului XTB', () => {
       '\r\n700000010;Stocks/ETF sale;03.02.2025 10:15:00;FB.US;CLOSE BUY 4/10 @ 610.00;2244.8' +
       '\r\n700000011;Stocks/ETF purchase;04.02.2025 10:15:00;GOOGL.US;OPEN BUY 2 @ 190.00;-349.6';
     const { result } = await importFile(alice, newer, CSV_NAME);
-    expect(result).toMatchObject({ imported: 2, buys: 1, sells: 1, alreadyImported: 8, createdAssets: 0 });
+    expect(result).toMatchObject({ imported: 2, byKind: { buy: 1, sell: 1 }, duplicates: 10, createdAssets: 0 });
     expect(quantities(alice.id)).toMatchObject({ META: 6, GOOGL: 3 });
   });
 
   it('citește exportul Excel, deduce cursul din raport și compară cu pozițiile deschise', async () => {
-    const { result } = await importFile(alice, ronWorkbook(), 'account_1234567_ro_xlsx_2024-01-01_2024-12-31.xlsx');
-    expect(result).toMatchObject({ imported: 4, buys: 2, dividends: 2, createdAssets: 2, approximated: 1 });
-    // MSFT apare la poziții deschise, dar raportul nu conține cumpărarea lui.
-    expect(result.incomplete).toEqual(['MSFT.US']);
+    const { preview, result } = await importFile(alice, ronWorkbook(), 'account_1234567_ro_xlsx_2024-01-01_2024-12-31.xlsx');
+    expect(result).toMatchObject({ imported: 5, byKind: { deposit: 1, buy: 2, dividend: 2 }, createdAssets: 2, approximated: 1 });
+    // MSFT apare la poziții deschise, dar raportul nu conține cumpărarea lui: se vede diferența.
     expect(result.positions).toEqual([
       { symbol: 'AAPL', brokerSymbol: 'AAPL.US', name: 'Apple Inc.', quantity: 10, reportedQuantity: 10 },
+      { symbol: 'MSFT', brokerSymbol: 'MSFT.US', name: '', quantity: 0, reportedQuantity: 3 },
       { symbol: 'SPYL.DE', brokerSymbol: 'SPYL.DE', name: 'SPDR S&P 500 UCITS ETF', quantity: 100, reportedQuantity: 100 }
     ]);
-    expect(result.ignored.map((i) => i.label)).toEqual(['deposit', 'swap']);
+    expect(preview.ignored.map((i) => i.label)).toEqual(['swap']);
 
     const dividends = listTransactions(db, alice.id, { type: 'dividend' });
     // Cont în RON: 10 acțiuni × 0,25 USD = 2,50 USD (confirmat de cursul din raport: 11,50 RON / 4,60).
-    expect(dividends.find((t) => t.symbol === 'AAPL')).toMatchObject({ grossAmount: 2.5, taxWithheld: 0.25, notes: 'Import XTB' });
+    expect(dividends.find((t) => t.symbol === 'AAPL')).toMatchObject({ grossAmount: 2.5, taxWithheld: 0.25, notes: 'Import XTB (xStation)' });
     // ETF în EUR care distribuie în USD: suma se convertește la cursul din raport (32,20 RON / 5,00) și este marcată.
     const approx = dividends.find((t) => t.symbol === 'SPYL.DE');
     expect(approx).toMatchObject({ grossAmount: 6.44, taxWithheld: 0, currency: 'EUR' });
     expect(approx?.notes).toMatch(/aproximativ din RON/);
+    expect(preview.rows.find((r) => r.symbol === 'SPYL.DE' && r.kind === 'dividend')).toMatchObject({ status: 'warning' });
   });
 
   it('importă exportul actual al xStation, cu tipul și denumirea din raport', async () => {
     const { preview, result } = await importFile(alice, currentWorkbook(), CURRENT_NAME);
-    expect(preview).toMatchObject({ dateFrom: '2026-01-06', dateTo: '2026-03-10', totals: { buys: 4, sells: 1, dividends: 0 }, instruments: 3 });
-    expect(result).toMatchObject({ imported: 5, buys: 4, sells: 1, createdAssets: 3, incomplete: [], unconfirmed: ['GOOG'] });
+    expect(preview).toMatchObject({ dateFrom: '2026-01-05', dateTo: '2026-04-02', byKind: { buy: 4, sell: 1, deposit: 1, interest: 1, withdrawal: 1 } });
+    expect(preview.instruments).toHaveLength(3);
+    expect(result).toMatchObject({ imported: 8, createdAssets: 3, errors: 0, unconfirmed: ['GOOG'] });
     // Alphabet clasa C se numește GOOGC.US la XTB și GOOG la bursă; poziția a fost închisă, deci nu mai apare.
     expect(result.positions).toEqual([
       { symbol: 'CSPX.L', brokerSymbol: 'CSPX.UK', name: 'iShares Core S&P 500 UCITS ETF', quantity: 1.2345, reportedQuantity: 1.2345 },
@@ -484,6 +510,8 @@ describe('importul raportului XTB', () => {
       'GOOG stock USD Alphabet', // negăsit la furnizorul simulat: denumirea vine din raport
       'NVDA stock USD NVIDIA Corporation'
     ]);
+    // Transferul (conversia valutară) a scos bani din cont: retragere.
+    expect(listTransactions(db, alice.id, { type: 'withdrawal' })).toMatchObject([{ netAmount: 50, currency: 'USD' }]);
 
     // Fără internet, tipul (ETF) și denumirea vin tot din raport.
     await importFile(bob, currentWorkbook(), CURRENT_NAME, { replaceManual: false }, offlineLookup);
@@ -497,11 +525,13 @@ describe('importul raportului XTB', () => {
   it('deduce moneda contului când raportul nu o spune', async () => {
     // Fără eticheta „Currency” și fără monedă în numele fișierului: cursurile din raport arată un cont în RON.
     const ron = await importFile(alice, ronWorkbook({ currencyLabel: false }), 'raport.xlsx');
-    expect(ron.result.imported).toBe(4);
+    expect(ron.preview.accountCurrency).toBe('RON');
+    expect(ron.result.imported).toBe(5);
     expect(listTransactions(db, alice.id, { type: 'dividend' }).find((t) => t.symbol === 'AAPL')).toMatchObject({ grossAmount: 2.5, taxWithheld: 0.25 });
 
     // ETF-ul în EUR a fost plătit „unu la unu”: contul lui Bob este în EUR.
-    await importFile(bob, CSV, 'operatiuni.csv');
+    const eur = await importFile(bob, CSV, 'operatiuni.csv');
+    expect(eur.preview.accountCurrency).toBe('EUR');
     const dividends = listTransactions(db, bob.id, { type: 'dividend' });
     expect(dividends.find((t) => t.symbol === 'META')).toMatchObject({ grossAmount: 5, taxWithheld: 0.75 });
     expect(dividends.find((t) => t.symbol === 'SPYL.DE')).toMatchObject({ grossAmount: 1.21 });
@@ -509,7 +539,7 @@ describe('importul raportului XTB', () => {
 
   it('funcționează și fără internet: simbolul și moneda se deduc din sufixul bursei', async () => {
     const { result } = await importFile(alice, CSV, CSV_NAME, { replaceManual: false }, offlineLookup);
-    expect(result).toMatchObject({ imported: 8, offline: true, unconfirmed: [] });
+    expect(result).toMatchObject({ imported: 10, offline: true, unconfirmed: [] });
     expect(listAssets(db, alice.id).map((a) => `${a.symbol} ${a.type} ${a.currency}`)).toEqual([
       'CSPX.L stock GBP',
       'GOOGL stock USD',
@@ -520,7 +550,7 @@ describe('importul raportului XTB', () => {
 
   it('întreabă de tranzacțiile introduse manual și le înlocuiește doar la cerere', async () => {
     const broker = createBroker(db, alice.id, { name: 'XTB' });
-    // Aceeași cumpărare ca în raport, introdusă de mână înainte de import.
+    // Aceeași cumpărare ca în raport, introdusă de mână (cu prețul rotunjit) înainte de import.
     addPurchase(db, alice.id, { asset: { type: 'etf', symbol: 'SPYL.DE', currency: 'EUR' }, brokerId: broker.id, date: '2024-04-02', quantity: 85, price: 11.73, fee: 0 });
 
     const kept = await importFile(alice, CSV, CSV_NAME);
@@ -528,12 +558,21 @@ describe('importul raportului XTB', () => {
     expect(kept.result.replaced).toBe(0);
     expect(quantities(alice.id)['SPYL.DE']).toBeCloseTo(204.5658, 6); // apare de două ori
 
-    for (const table of ['transactions', 'broker_symbols']) db.prepare(`DELETE FROM ${table}`).run();
+    for (const table of ['transactions', 'broker_symbols', 'import_batches']) db.prepare(`DELETE FROM ${table}`).run();
     addPurchase(db, alice.id, { asset: { type: 'etf', symbol: 'SPYL.DE', currency: 'EUR' }, brokerId: broker.id, date: '2024-04-02', quantity: 85, price: 11.73, fee: 0 });
     const replaced = await importFile(alice, CSV, CSV_NAME, { replaceManual: true });
     expect(replaced.result.replaced).toBe(1);
     expect(quantities(alice.id)['SPYL.DE']).toBe(119.5658);
     expect(listBrokers(db, alice.id)).toHaveLength(1); // se folosește brokerul XTB existent
+  });
+
+  it('recunoaște ca dublură o tranzacție introdusă manual identică cu cea din raport', async () => {
+    const broker = createBroker(db, alice.id, { name: 'XTB' });
+    addPurchase(db, alice.id, { asset: { type: 'etf', symbol: 'SPYL.DE', currency: 'EUR' }, brokerId: broker.id, date: '2024-04-02', quantity: 85, price: 11.7305, fee: 0 });
+    const { preview, result } = await importFile(alice, CSV, CSV_NAME);
+    expect(preview.rows.find((r) => r.symbol === 'SPYL.DE' && r.quantity === 85)).toMatchObject({ status: 'duplicate' });
+    expect(result).toMatchObject({ imported: 9, duplicates: 1 });
+    expect(quantities(alice.id)['SPYL.DE']).toBe(119.5658);
   });
 
   it('păstrează o cumpărare introdusă manual dacă vânzarea din raport depinde de ea', async () => {
@@ -543,21 +582,21 @@ describe('importul raportului XTB', () => {
 
     const { preview, result } = await importFile(alice, CSV, CSV_NAME, { replaceManual: true });
     expect(preview).toMatchObject({ brokerName: 'Contul meu XTB', manualCount: 1 });
-    expect(result).toMatchObject({ brokerName: 'Contul meu XTB', imported: 9, sells: 1, replaced: 0, incomplete: [] });
+    expect(result).toMatchObject({ brokerName: 'Contul meu XTB', imported: 11, byKind: { sell: 1 }, replaced: 0, errors: 0 });
     expect(listTransactions(db, alice.id, { symbol: 'ZAL.DE' }).map((t) => t.type).sort()).toEqual(['buy', 'sell']);
     expect(quantities(alice.id)['ZAL.DE']).toBeUndefined(); // poziție închisă
   });
 
   it('ține minte legătura dintre simbolul XTB și activ și izolează utilizatorii', async () => {
     await importFile(alice, CSV, CSV_NAME);
-    const links = db.prepare('SELECT broker_symbol FROM broker_symbols WHERE user_id = ? ORDER BY broker_symbol').all(alice.id);
+    const links = db.prepare("SELECT broker_symbol FROM broker_symbols WHERE user_id = ? AND source = 'xtb' ORDER BY broker_symbol").all(alice.id);
     expect(links).toEqual([{ broker_symbol: 'CSPX.UK' }, { broker_symbol: 'FB.US' }, { broker_symbol: 'GOOGL.US' }, { broker_symbol: 'SPYL.DE' }]);
 
     // Același raport în contul lui Bob: date proprii, fără nicio legătură cu ale lui Alice.
     const forBob = await importFile(bob, CSV, CSV_NAME);
-    expect(forBob.result).toMatchObject({ imported: 8, alreadyImported: 0, createdAssets: 4 });
-    expect(listTransactions(db, alice.id)).toHaveLength(8);
-    expect(listTransactions(db, bob.id)).toHaveLength(8);
+    expect(forBob.result).toMatchObject({ imported: 10, duplicates: 0, createdAssets: 4 });
+    expect(listTransactions(db, alice.id)).toHaveLength(10);
+    expect(listTransactions(db, bob.id)).toHaveLength(10);
   });
 
   it('backup-ul păstrează identificatorii operațiunilor: după restaurare, reimportul nu dublează', async () => {
@@ -565,11 +604,11 @@ describe('importul raportului XTB', () => {
     const file = join(tmp, 'backup-xtb.db');
     createBackup(db, alice.id, file);
 
-    expect(restoreBackup(db, bob.id, file)).toEqual({ brokers: 1, assets: 4, transactions: 8 });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM broker_symbols WHERE user_id = ?').get(bob.id)).toEqual({ n: 4 });
+    expect(restoreBackup(db, bob.id, file)).toEqual({ brokers: 1, assets: 4, transactions: 10 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM broker_symbols WHERE user_id = ? AND source = 'xtb'").get(bob.id)).toEqual({ n: 4 });
     const { result } = await importFile(bob, CSV, CSV_NAME);
-    expect(result).toMatchObject({ imported: 0, alreadyImported: 8, createdAssets: 0 });
-    expect(listTransactions(db, bob.id)).toHaveLength(8);
+    expect(result).toMatchObject({ imported: 0, duplicates: 10, createdAssets: 0 });
+    expect(listTransactions(db, bob.id)).toHaveLength(10);
   });
 });
 
@@ -589,7 +628,8 @@ describe('migrarea schemei pentru import', () => {
     `);
     migrate(old);
     expect(schemaVersion(old)).toBe(LATEST_SCHEMA_VERSION);
-    expect(old.prepare('SELECT quantity, external_id FROM transactions').get()).toEqual({ quantity: 2, external_id: null });
+    // Sumele se păstrează de acum ca text zecimal exact.
+    expect(old.prepare('SELECT quantity, price, external_id FROM transactions').get()).toEqual({ quantity: '2', price: '180', external_id: null });
     expect(old.prepare('SELECT COUNT(*) AS n FROM broker_symbols').get()).toEqual({ n: 0 });
     // Același identificator extern nu poate fi salvat de două ori pentru același utilizator.
     const insert = old.prepare(

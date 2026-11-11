@@ -5,7 +5,7 @@
  * Toate serviciile primesc `userId` de la stratul IPC (din sesiunea curentă),
  * niciodată din interfață, și filtrează fiecare interogare după el.
  */
-import type { Asset, AssetType, Broker, PriceMode, Transaction, TransactionType, User } from '@shared/types';
+import type { Asset, AssetType, Broker, Portfolio, PortfolioColor, PortfolioIcon, PriceMode, Transaction, TransactionType, User } from '@shared/types';
 import type { LedgerTx } from '@shared/calc';
 
 /** Eroare cu mesaj în română, sigur de afișat utilizatorului. */
@@ -33,6 +33,22 @@ export function rowToBroker(r: Row): Broker {
     id: r.id,
     name: r.name,
     notes: r.notes ?? null,
+    residence: r.residence === 'ro' ? 'ro' : 'foreign',
+    createdAt: r.created_at,
+    transactionCount: r.transaction_count ?? undefined
+  };
+}
+
+export function rowToPortfolio(r: Row): Portfolio {
+  return {
+    id: r.id,
+    name: r.name,
+    color: r.color as PortfolioColor,
+    icon: r.icon as PortfolioIcon,
+    baseCurrency: r.base_currency,
+    benchmark: r.benchmark ?? null,
+    archived: !!r.archived,
+    sortOrder: r.sort_order ?? 0,
     createdAt: r.created_at,
     transactionCount: r.transaction_count ?? undefined
   };
@@ -52,46 +68,63 @@ export function rowToAsset(r: Row): Asset {
     priceMode: r.price_mode as PriceMode,
     manualPrice: r.manual_price ?? null,
     manualPriceDate: r.manual_price_date ?? null,
+    isin: r.isin ?? null,
+    sector: r.sector ?? null,
+    country: r.country ?? null,
+    profileSource: r.profile_source ?? null,
     createdAt: r.created_at
   };
 }
 
+/** Text zecimal din bază -> număr pentru afișare (calculele folosesc textul exact, vezi rowToLedgerTx). */
+const numOf = (v: unknown): number => (v === null || v === undefined || v === '' ? 0 : Number(v));
+const numOrNull = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number(v));
+
 export function rowToTransaction(r: Row): Transaction {
   return {
     id: r.id,
-    assetId: r.asset_id,
+    portfolioId: r.portfolio_id ?? null,
+    assetId: r.asset_id ?? null,
+    brokerId: r.broker_id ?? null,
+    type: r.type as TransactionType,
+    date: r.date,
+    quantity: numOf(r.quantity),
+    price: numOf(r.price),
+    fee: numOf(r.fee),
+    currency: r.currency,
+    grossAmount: numOf(r.gross_amount),
+    taxWithheld: numOf(r.tax_withheld),
+    netAmount: numOf(r.net_amount),
+    splitNumerator: numOrNull(r.split_numerator),
+    splitDenominator: numOrNull(r.split_denominator),
+    notes: r.notes ?? null,
+    cashAmount: numOrNull(r.cash_amount),
+    cashCurrency: r.cash_currency ?? null,
+    externalId: r.external_id ?? null,
+    batchId: r.batch_id ?? null,
+    createdAt: r.created_at
+  };
+}
+
+/** Forma minimă cerută de motorul de calcul. Sumele rămân text zecimal exact, ca în bază. */
+export function rowToLedgerTx(r: Row): LedgerTx {
+  return {
+    id: r.id,
+    portfolioId: r.portfolio_id ?? null,
+    assetId: r.asset_id ?? null,
     brokerId: r.broker_id ?? null,
     type: r.type as TransactionType,
     date: r.date,
     quantity: r.quantity,
     price: r.price,
     fee: r.fee,
-    currency: r.currency,
     grossAmount: r.gross_amount,
     taxWithheld: r.tax_withheld,
     netAmount: r.net_amount,
     splitNumerator: r.split_numerator ?? null,
     splitDenominator: r.split_denominator ?? null,
-    notes: r.notes ?? null,
-    createdAt: r.created_at
-  };
-}
-
-/** Forma minimă cerută de motorul de calcul. */
-export function rowToLedgerTx(r: Row): LedgerTx {
-  return {
-    id: r.id,
-    assetId: r.asset_id,
-    brokerId: r.broker_id ?? null,
-    type: r.type as TransactionType,
-    date: r.date,
-    quantity: r.quantity,
-    price: r.price,
-    fee: r.fee,
-    grossAmount: r.gross_amount,
-    taxWithheld: r.tax_withheld,
-    netAmount: r.net_amount,
-    splitNumerator: r.split_numerator ?? null,
-    splitDenominator: r.split_denominator ?? null
+    currency: r.currency ?? null,
+    cashAmount: r.cash_amount ?? null,
+    cashCurrency: r.cash_currency ?? null
   };
 }

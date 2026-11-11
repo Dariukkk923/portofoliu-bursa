@@ -1,6 +1,6 @@
 /** Istoricul tranzacțiilor: tabel cu filtre, adăugare, editare, ștergere, import și export CSV. */
-import { useState } from 'react';
-import { ArrowLeftRight, FileDown, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { ArrowLeftRight, FileDown, Pencil, Plus, RotateCcw, Trash2, FolderInput } from 'lucide-react';
 import {
   ASSET_TYPES,
   TRANSACTION_TYPES,
@@ -14,35 +14,52 @@ import { ASSET_TYPE_LABEL, ASSET_TYPE_LABEL_PLURAL, TRANSACTION_TYPE_LABEL } fro
 import { priceMultiplier } from '@shared/calc/valuation';
 import { api, errorMessage } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
-import { date as fmtDate, money, price as fmtPrice, quantity as fmtQuantity } from '../lib/format';
+import { date as fmtDate, money, price as fmtPrice, quantity as fmtQuantity, signedMoney } from '../lib/format';
 import { TransactionForm } from '../components/TransactionForm';
 import { ImportButton } from '../components/ImportButton';
-import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Input, Notice, Select, Spinner, TD, TH, cx } from '../components/ui';
+import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Input, ListSkeleton, LoadError, Notice, Select, TD, TH, cx } from '../components/ui';
+import { MoveDialog, PortfolioTag } from '../components/portfolio';
+import { TickerLogo } from '../components/TickerLogo';
 
-const TYPE_TONE: Record<TransactionType, 'accent' | 'warn' | 'gain' | 'neutral'> = {
+const TYPE_TONE: Record<TransactionType, 'accent' | 'warn' | 'gain' | 'loss' | 'neutral'> = {
   buy: 'accent',
   sell: 'warn',
   dividend: 'gain',
   coupon: 'gain',
-  split: 'neutral'
+  split: 'neutral',
+  deposit: 'gain',
+  withdrawal: 'warn',
+  fee: 'loss',
+  interest: 'gain',
+  adjustment: 'neutral'
 };
 
-/** Valoarea tranzacției în moneda ei: cantitate × preț pentru cumpărări/vânzări, suma netă pentru dividende/cupoane. */
+/** Valoarea tranzacției în moneda ei: cantitate × preț pentru cumpărări/vânzări, suma pentru celelalte. */
 function amountOf(t: TransactionView, asset: Asset | undefined): string {
   if (t.type === 'split') return '—';
-  if (t.type === 'dividend' || t.type === 'coupon') return money(t.netAmount, t.currency);
+  if (t.type === 'withdrawal' || t.type === 'fee') return `−${money(t.netAmount, t.currency)}`;
+  if (t.type === 'adjustment') return signedMoney(t.netAmount, t.currency);
+  if (t.type !== 'buy' && t.type !== 'sell') return money(t.netAmount, t.currency);
   const multiplier = asset ? priceMultiplier(asset) : 1;
   return money(t.quantity * t.price * multiplier, t.currency);
 }
 
 export function TransactionsPage() {
-  const { brokers, dataVersion, bumpData, notify } = useApp();
+  const { brokers, dataVersion, bumpData, notify, scope, activePortfolios } = useApp();
   const [filters, setFilters] = useState<TransactionFilters>({});
+  /** Filtrele alese pe pagină, plus portofoliul selectat în bara de sus. */
+  const scoped = useMemo<TransactionFilters>(() => ({ ...filters, portfolioId: scope === 'all' ? null : scope }), [filters, scope]);
+  const canMove = activePortfolios.length > 1;
+  const showPortfolio = scope === 'all' && canMove;
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [moving, setMoving] = useState(false);
   const [form, setForm] = useState<{ initial: TransactionView | null } | null>(null);
   const [deleting, setDeleting] = useState<TransactionView | null>(null);
   const [busy, setBusy] = useState<'delete' | 'export' | null>(null);
 
-  const list = useLoad(() => api.transactions.list(filters), [filters, dataVersion]);
+  const list = useLoad(() => api.transactions.list(scoped), [scoped, dataVersion]);
+  // Selecția se golește când se schimbă lista (filtre, portofoliu, date noi).
+  useEffect(() => setSelected(new Set()), [scoped, dataVersion]);
   const assets = useLoad(() => api.assets.list(), [dataVersion]);
   const assetList = assets.data ?? [];
   const rows = list.data ?? [];
@@ -70,7 +87,7 @@ export function TransactionsPage() {
   const exportCsv = async (): Promise<void> => {
     setBusy('export');
     try {
-      const res = await api.transactions.exportCsv(filters);
+      const res = await api.transactions.exportCsv(scoped);
       if (!res.canceled) notify('success', `${res.count} tranzacții exportate în ${res.path}.`);
     } catch (err) {
       notify('error', errorMessage(err));
@@ -133,7 +150,12 @@ export function TransactionsPage() {
           </Button>
         )}
 
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-2">
+          {selected.size > 0 && (
+            <Button icon={<FolderInput className="size-4" />} onClick={() => setMoving(true)}>
+              Mută {selected.size === 1 ? 'tranzacția' : `${selected.size} tranzacții`}
+            </Button>
+          )}
           <ImportButton />
           <Button icon={<FileDown className="size-4" />} loading={busy === 'export'} disabled={rows.length === 0} onClick={() => void exportCsv()}>
             Export CSV
@@ -147,10 +169,12 @@ export function TransactionsPage() {
       {list.error && <Notice tone="loss">{list.error}</Notice>}
 
       <Card padded={false}>
-        {!list.data ? (
-          <div className="flex justify-center py-16">
-            <Spinner />
+        {list.error ? (
+          <div className="p-4">
+            <LoadError message={list.error} onRetry={list.reload} />
           </div>
+        ) : !list.data ? (
+          <ListSkeleton rows={8} />
         ) : rows.length === 0 ? (
           <EmptyState
             icon={<ArrowLeftRight className="size-5" />}
@@ -162,6 +186,17 @@ export function TransactionsPage() {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-line">
+                  {canMove && (
+                    <th className={cx(TH, 'w-8 pr-0')}>
+                      <input
+                        type="checkbox"
+                        aria-label="Selectează toate tranzacțiile afișate"
+                        className="size-4 accent-accent"
+                        checked={selected.size > 0 && selected.size === rows.filter((r) => r.type !== 'split').length}
+                        onChange={(e) => setSelected(e.target.checked ? new Set(rows.filter((r) => r.type !== 'split').map((r) => r.id)) : new Set())}
+                      />
+                    </th>
+                  )}
                   <th className={TH}>Data</th>
                   <th className={TH}>Tip</th>
                   <th className={TH}>Activ</th>
@@ -179,21 +214,55 @@ export function TransactionsPage() {
                   const asset = assetList.find((a) => a.id === t.assetId);
                   const trade = t.type === 'buy' || t.type === 'sell';
                   return (
-                    <tr key={t.id} className="border-b border-line last:border-0 hover:bg-surface-2/60">
+                    <tr key={t.id} className={cx('border-b border-line last:border-0 hover:bg-surface-2/60', selected.has(t.id) && 'bg-accent-soft/60')}>
+                      {canMove && (
+                        <td className={cx(TD, 'w-8 pr-0')}>
+                          {t.type !== 'split' && (
+                            <input
+                              type="checkbox"
+                              aria-label={`Selectează tranzacția din ${fmtDate(t.date)}`}
+                              className="size-4 accent-accent"
+                              checked={selected.has(t.id)}
+                              onChange={(e) =>
+                                setSelected((s) => {
+                                  const next = new Set(s);
+                                  if (e.target.checked) next.add(t.id);
+                                  else next.delete(t.id);
+                                  return next;
+                                })
+                              }
+                            />
+                          )}
+                        </td>
+                      )}
                       <td className={cx(TD, 'tabular')}>{fmtDate(t.date)}</td>
                       <td className={TD}>
                         <Badge tone={TYPE_TONE[t.type]}>{TRANSACTION_TYPE_LABEL[t.type]}</Badge>
                       </td>
                       <td className={TD}>
-                        <span className="font-semibold">{t.symbol}</span> <span className="text-xs text-ink-3">{ASSET_TYPE_LABEL[t.assetType]}</span>
+                        {t.symbol ? (
+                          <span className="flex items-center gap-2">
+                            {t.assetType && <TickerLogo symbol={t.symbol} type={t.assetType} size={22} />}
+                            <span className="font-semibold">{t.symbol}</span> {t.assetType && <span className="text-xs text-ink-3">{ASSET_TYPE_LABEL[t.assetType]}</span>}
+                          </span>
+                        ) : (
+                          <span className="text-ink-2">Cash {t.currency}</span>
+                        )}
                       </td>
-                      <td className={TD}>{t.brokerName ?? <span className="text-ink-3">Toți brokerii</span>}</td>
+                      <td className={TD}>
+                        {t.brokerName ?? <span className="text-ink-3">Toți brokerii</span>}
+                        {showPortfolio && t.portfolioId != null && (
+                          <div>
+                            <PortfolioTag portfolioId={t.portfolioId} />
+                          </div>
+                        )}
+                      </td>
                       <td className={cx(TD, 'tabular text-right')}>{trade ? fmtQuantity(t.quantity) : t.type === 'split' ? `${t.splitNumerator}:${t.splitDenominator}` : '—'}</td>
                       <td className={cx(TD, 'tabular text-right')}>{trade ? `${fmtPrice(t.price)}${t.assetType === 'bond' ? '%' : ''}` : '—'}</td>
                       <td className={cx(TD, 'tabular text-right')}>{trade && t.fee > 0 ? money(t.fee, t.currency) : '—'}</td>
                       <td className={cx(TD, 'tabular text-right')}>
                         <div className="font-medium">{amountOf(t, asset)}</div>
-                        {(t.type === 'dividend' || t.type === 'coupon') && (
+                        {(t.type === 'dividend' || t.type === 'coupon' || t.type === 'interest') && (
                           <div className="text-xs text-ink-3">
                             brut {money(t.grossAmount, t.currency)} · impozit {money(t.taxWithheld, t.currency)}
                           </div>
@@ -229,6 +298,19 @@ export function TransactionsPage() {
           onClose={() => setForm(null)}
           onSaved={() => {
             setForm(null);
+            bumpData();
+          }}
+        />
+      )}
+      {moving && (
+        <MoveDialog
+          ids={[...selected]}
+          fromPortfolioId={scope === 'all' ? null : scope}
+          title={selected.size === 1 ? 'Mută tranzacția în alt portofoliu' : `Mută ${selected.size} tranzacții în alt portofoliu`}
+          onClose={() => setMoving(false)}
+          onMoved={() => {
+            setMoving(false);
+            setSelected(new Set());
             bumpData();
           }}
         />

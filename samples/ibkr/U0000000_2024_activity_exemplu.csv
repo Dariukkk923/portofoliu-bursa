@@ -1,0 +1,39 @@
+Statement,Header,Field Name,Field Value
+Statement,Data,BrokerName,Interactive Brokers Ireland Limited
+Statement,Data,Title,Activity Statement
+Statement,Data,Period,"January 1, 2024 - December 31, 2024"
+Account Information,Header,Field Name,Field Value
+Account Information,Data,Name,Exemplu Anonim
+Account Information,Data,Account,U0000000
+Account Information,Data,Account Type,Individual
+Account Information,Data,Base Currency,EUR
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,C. Price,Proceeds,Comm/Fee,Basis,Realized P/L,MTM P/L,Code
+Trades,Data,Order,Stocks,EUR,IWDA,"2024-03-05, 09:15:40",10,88.5,88.62,-885,-1.25,886.25,0,1.2,O
+Trades,Data,Order,Stocks,USD,NVDA,"2024-03-04, 10:02:13",2,852.37,852.37,-1704.74,-1,1705.74,0,0,O
+Trades,Data,Order,Stocks,USD,NVDA,"2024-07-15, 10:30:00",-5,128,128.5,640,-1,-426.44,212.56,-2.5,C
+Trades,SubTotal,,Stocks,USD,NVDA,,-3,,,-1064.74,-2,1279.3,212.56,-2.5,
+Trades,Total,,Stocks,EUR,,,,,,-1827.3,-3.25,,,,
+Trades,Data,Order,Forex,USD,EUR.USD,"2024-03-01, 09:00:00",2000,1.0845,,-1844.17,-1.7,,,,
+Dividends,Header,Currency,Date,Description,Amount
+Dividends,Data,USD,2024-06-28,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.2
+Dividends,Data,Total,,,0.2
+Withholding Tax,Header,Currency,Date,Description,Amount,Code
+Withholding Tax,Data,USD,2024-06-28,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share - US Tax,-0.03,
+Withholding Tax,Data,Total,,,-0.03,
+Deposits & Withdrawals,Header,Currency,Settle Date,Description,Amount
+Deposits & Withdrawals,Data,EUR,2024-03-01,Electronic Fund Transfer,3000
+Deposits & Withdrawals,Data,Total,,,3000
+Fees,Header,Subtitle,Currency,Date,Description,Amount
+Fees,Data,Other Fees,USD,2024-04-03,US Securities Snapshot and Futures Value Bundle for MAR 2024,-1.5
+Fees,Data,Total,,,,-1.5
+Interest,Header,Currency,Date,Description,Amount
+Interest,Data,EUR,2024-05-03,EUR Credit Interest for Apr-2024,2.14
+Interest,Data,Total,,,2.14
+Corporate Actions,Header,Asset Category,Currency,Report Date,Date/Time,Description,Quantity,Proceeds,Value,Realized P/L,Code
+Corporate Actions,Data,Stocks,USD,2024-06-10,"2024-06-07, 20:25:00","NVDA(US67066G1040) Split 10 for 1 (NVDA, NVIDIA CORP, US67066G1040)",18,0,0,0,
+Open Positions,Header,DataDiscriminator,Asset Category,Currency,Symbol,Quantity,Mult,Cost Price,Cost Basis,Close Price,Value,Unrealized P/L,Code
+Open Positions,Data,Summary,Stocks,EUR,IWDA,10,1,88.625,886.25,101.2,1012,125.75,
+Open Positions,Data,Summary,Stocks,USD,NVDA,15,1,85.287,1279.3,134.29,2014.35,735.05,
+Financial Instrument Information,Header,Asset Category,Symbol,Description,Conid,Security ID,Listing Exch,Multiplier,Type,Code
+Financial Instrument Information,Data,Stocks,IWDA,ISHARES CORE MSCI WORLD,100292038,IE00B4L5Y983,AEB,1,ETF,
+Financial Instrument Information,Data,Stocks,NVDA,NVIDIA CORP,4815747,US67066G1040,NASDAQ,1,COMMON,

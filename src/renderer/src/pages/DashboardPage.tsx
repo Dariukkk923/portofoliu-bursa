@@ -7,17 +7,21 @@ import { api } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
 import { money, signedMoney, signedPercent } from '../lib/format';
 import { AllocationDonut, EvolutionChart } from '../components/charts';
-import { Button, Card, EmptyState, Notice, Pnl, Segmented, Spinner } from '../components/ui';
+import { CashCards } from '../components/CashCards';
+import { BenchmarkCard } from '../components/BenchmarkCard';
+import { GoalsSummary } from './GoalsPage';
+import { AnimatedNumber, Button, Card, EmptyState, LoadError, Notice, PageSkeleton, Pnl, Segmented, Skeleton } from '../components/ui';
 import type { PageId } from '../components/Layout';
+import { TickerLogo } from '../components/TickerLogo';
 
 const RANGES: HistoryRange[] = ['1M', '3M', '6M', '1Y', 'ALL'];
 
 /** Card cu o cifră principală și un rând de detalii. */
 function Kpi({ label, value, detail }: { label: string; value: ReactNode; detail?: ReactNode }) {
   return (
-    <div className="rounded-xl border border-line bg-surface px-4 py-3.5">
+    <div className="rounded-xl border border-line bg-surface px-4 py-3.5 shadow-card">
       <p className="text-xs font-medium text-ink-2">{label}</p>
-      <div className="tabular mt-1 text-[22px] leading-7 font-semibold text-ink">{value}</div>
+      <div className="tabular mt-1 text-stat font-semibold text-ink">{value}</div>
       {detail && <div className="mt-1 text-xs text-ink-2">{detail}</div>}
     </div>
   );
@@ -25,20 +29,21 @@ function Kpi({ label, value, detail }: { label: string; value: ReactNode; detail
 
 /** Listă de poziții cu randamentul lor (folosită pentru câștigători și pierderi). */
 function MoversList({ items, base, empty }: { items: PositionView[]; base: string; empty: string }) {
-  if (items.length === 0) return <p className="py-6 text-center text-[13px] text-ink-3">{empty}</p>;
+  if (items.length === 0) return <p className="py-6 text-center text-body text-ink-3">{empty}</p>;
   return (
     <ul className="divide-y divide-line">
       {items.map((p) => (
         <li key={p.key} className="flex items-center gap-3 py-2">
+          <TickerLogo symbol={p.symbol} type={p.assetType} size={28} />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold text-ink">{p.symbol}</p>
+            <p className="text-body font-semibold text-ink">{p.symbol}</p>
             <p className="truncate text-xs text-ink-3">{p.name || ASSET_TYPE_LABEL[p.assetType]}</p>
           </div>
           <Pnl value={p.unrealizedBase} className="text-xs">
             {signedMoney(p.unrealizedBase, base)}
           </Pnl>
-          <Pnl value={p.unrealizedPct} arrow className="w-22 justify-end text-[13px] font-semibold">
-            {signedPercent(p.unrealizedPct)}
+          <Pnl value={p.unrealizedBasePct} arrow className="w-22 justify-end text-body font-semibold">
+            {signedPercent(p.unrealizedBasePct)}
           </Pnl>
         </li>
       ))}
@@ -47,16 +52,17 @@ function MoversList({ items, base, empty }: { items: PositionView[]; base: strin
 }
 
 export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => void }) {
-  const { filter, dataVersion, brokers } = useApp();
+  const { filter, dataVersion, brokers, bumpData } = useApp();
   const [range, setRange] = useState<HistoryRange>('1Y');
   const overview = useLoad(() => api.portfolio.overview(filter), [filter, dataVersion]);
   const history = useLoad(() => api.portfolio.history(range, filter), [range, filter, dataVersion]);
+  const performance = useLoad(() => api.portfolio.performance('ALL', filter), [filter, dataVersion]);
   // Lista completă a activelor dă o ordine stabilă culorilor din graficul de alocare.
   const assets = useLoad(() => api.assets.list(), [dataVersion]);
 
   const o = overview.data;
   if (!o) {
-    return overview.error ? <Notice tone="loss">{overview.error}</Notice> : <div className="flex justify-center py-20"><Spinner className="size-7" /></div>;
+    return overview.error ? <LoadError message={overview.error} onRetry={overview.reload} /> : <PageSkeleton />;
   }
 
   const t = o.totals;
@@ -96,11 +102,28 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
       )}
       {o.approximateFx && <Notice tone="warn">Cursurile valutare nu au putut fi descărcate încă; conversia în {base} folosește cursuri aproximative până la prima actualizare.</Notice>}
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <Kpi label="Valoarea totală a portofoliului" value={money(t.totalValue, base)} detail={<>Cost: <span className="tabular">{money(t.totalCost, base)}</span></>} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Kpi
+          label="Valoarea totală a portofoliului"
+          value={<AnimatedNumber value={t.totalValue} format={(v) => money(v, base)} />}
+          detail={
+            <>
+              {Math.abs(t.cash) >= 0.005 && (
+                <span className="tabular">
+                  Active {money(t.holdingsValue, base)} · Cash {money(t.cash, base)} ·{' '}
+                </span>
+              )}
+              Cost: <span className="tabular">{money(t.totalCost, base)}</span>
+            </>
+          }
+        />
         <Kpi
           label="Profit total (realizat + nerealizat)"
-          value={<Pnl value={t.totalPnl}>{signedMoney(t.totalPnl, base)}</Pnl>}
+          value={
+            <Pnl value={t.totalPnl}>
+              <AnimatedNumber value={t.totalPnl} format={(v) => signedMoney(v, base)} />
+            </Pnl>
+          }
           detail={
             <>
               Randament total:{' '}
@@ -112,16 +135,32 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
         />
         <Kpi
           label="Profit nerealizat (poziții deschise)"
-          value={<Pnl value={t.unrealized}>{signedMoney(t.unrealized, base)}</Pnl>}
-          detail={
-            <Pnl value={t.unrealizedPct} arrow className="font-semibold">
-              {signedPercent(t.unrealizedPct)}
+          value={
+            <Pnl value={t.unrealized}>
+              <AnimatedNumber value={t.unrealized} format={(v) => signedMoney(v, base)} />
             </Pnl>
+          }
+          detail={
+            <>
+              <Pnl value={t.unrealizedPct} arrow className="font-semibold">
+                {signedPercent(t.unrealizedPct)}
+              </Pnl>
+              {Math.abs(t.fxPnl) >= 0.005 && (
+                <span className="tabular" title="Partea datorată prețurilor și partea datorată cursurilor valutare">
+                  {' '}
+                  · din preț {signedMoney(t.pricePnl, base)} · din curs {signedMoney(t.fxPnl, base)}
+                </span>
+              )}
+            </>
           }
         />
         <Kpi
           label="Profit realizat"
-          value={<Pnl value={t.realized}>{signedMoney(t.realized, base)}</Pnl>}
+          value={
+            <Pnl value={t.realized}>
+              <AnimatedNumber value={t.realized} format={(v) => signedMoney(v, base)} />
+            </Pnl>
+          }
           detail={
             <span className="tabular">
               Vânzări {signedMoney(t.realizedSales, base)} · Dividende și cupoane {signedMoney(t.income, base)}
@@ -130,6 +169,59 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
         />
       </div>
 
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Kpi
+          label="Pe plus (câștiguri nerealizate)"
+          value={<Pnl value={t.unrealizedGains}>{signedMoney(t.unrealizedGains, base)}</Pnl>}
+          detail={
+            <>
+              {t.gainingPositions === 1 ? '1 poziție' : `${t.gainingPositions} poziții`} pe plus
+              {t.unrealizedGainsPct !== null && (
+                <>
+                  {' '}·{' '}
+                  <Pnl value={t.unrealizedGainsPct} arrow className="font-semibold">
+                    {signedPercent(t.unrealizedGainsPct)}
+                  </Pnl>
+                </>
+              )}
+            </>
+          }
+        />
+        <Kpi
+          label="Pe minus (pierderi nerealizate)"
+          value={<Pnl value={t.unrealizedLosses}>{signedMoney(t.unrealizedLosses, base)}</Pnl>}
+          detail={
+            t.losingPositions === 0 ? (
+              'Nicio poziție pe minus'
+            ) : (
+              <>
+                {t.losingPositions === 1 ? '1 poziție' : `${t.losingPositions} poziții`} pe minus ·{' '}
+                <Pnl value={t.unrealizedLossesPct} arrow className="font-semibold">
+                  {signedPercent(t.unrealizedLossesPct)}
+                </Pnl>
+                {' '}
+                <button type="button" className="font-medium text-accent hover:underline" onClick={() => onNavigate('positions')}>
+                  Vezi pozițiile
+                </button>
+              </>
+            )
+          }
+        />
+      </div>
+
+      <CashCards
+        totals={t}
+        balances={o.cashBalances}
+        untracked={o.untrackedCashBrokers}
+        performance={performance.data}
+        assets={assets.data ?? []}
+        onChanged={bumpData}
+      />
+
+      <BenchmarkCard filter={filter} dataVersion={dataVersion} />
+
+      <GoalsSummary onOpen={() => onNavigate('goals')} />
+
       <Card
         title="Evoluția valorii portofoliului"
         action={<Segmented size="sm" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: RANGE_LABEL[r] }))} />}
@@ -137,11 +229,9 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
         {history.data && history.data.length > 1 ? (
           <EvolutionChart data={history.data} currency={base} />
         ) : history.loading ? (
-          <div className="flex h-72 items-center justify-center">
-            <Spinner />
-          </div>
+          <Skeleton className="h-72" />
         ) : (
-          <p className="flex h-72 items-center justify-center text-[13px] text-ink-3">Nu există suficiente date pentru grafic în intervalul ales.</p>
+          <p className="flex h-72 items-center justify-center text-body text-ink-3">Nu există suficiente date pentru grafic în intervalul ales.</p>
         )}
       </Card>
 

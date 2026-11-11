@@ -1,4 +1,4 @@
-/** Editarea unui activ: denumire, sursa prețului (API sau manual), prețul manual și termenii obligațiunii. */
+/** Editarea unui activ: denumire, sursa prețului (API sau manual), prețul manual, sectorul și țara, termenii obligațiunii. */
 import { useState, type FormEvent } from 'react';
 import type { Asset, AssetUpdate, PriceMode } from '@shared/types';
 import { ASSET_TYPE_LABEL } from '@shared/labels';
@@ -22,6 +22,9 @@ export function AssetForm({ asset, onClose, onSaved }: { asset: Asset; onClose: 
   const [couponRate, setCouponRate] = useState(toText(asset.couponRate));
   const [couponFrequency, setCouponFrequency] = useState(asset.couponFrequency ?? 1);
   const [maturityDate, setMaturityDate] = useState(asset.maturityDate ?? '');
+  const [sector, setSector] = useState(asset.sector ?? '');
+  const [country, setCountry] = useState(asset.country ?? '');
+  const profileChanged = sector.trim() !== (asset.sector ?? '') || country.trim() !== (asset.country ?? '');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -38,6 +41,11 @@ export function AssetForm({ asset, onClose, onSaved }: { asset: Asset; onClose: 
     if (manualPrice.trim() !== '' && manual === null) return setError('Prețul manual nu este un număr valid.');
     if (priceMode === 'manual' && manual === null) return setError('Pentru modul manual trebuie să introduci un preț.');
     const patch: AssetUpdate = { name, priceMode, manualPrice: manual };
+    // Sectorul și țara se trimit doar dacă au fost schimbate (altfel rămân cele de la provider).
+    if (profileChanged) {
+      patch.sector = sector;
+      patch.country = country;
+    }
     if (isBond) {
       patch.faceValue = face;
       patch.couponRate = rate ?? 0;
@@ -75,7 +83,7 @@ export function AssetForm({ asset, onClose, onSaved }: { asset: Asset; onClose: 
         </Field>
 
         <div>
-          <span className="mb-1 block text-[13px] font-medium text-ink-2">Sursa prețului curent</span>
+          <span className="mb-1 block text-body font-medium text-ink-2">Sursa prețului curent</span>
           <Segmented
             value={priceMode}
             onChange={setPriceMode}
@@ -90,6 +98,26 @@ export function AssetForm({ asset, onClose, onSaved }: { asset: Asset; onClose: 
               : 'Se folosește doar prețul introdus de tine (util pentru titlurile de stat, care nu apar în API-uri).'}
           </p>
         </div>
+
+        {asset.type !== 'crypto' && (
+          <div className="grid grid-cols-2 gap-3.5">
+            <Field
+              label={asset.type === 'etf' ? 'Categorie (ETF)' : 'Sector'}
+              hint={
+                asset.profileSource === 'api'
+                  ? 'Primit de la providerul de date; îl poți schimba.'
+                  : asset.type === 'etf'
+                    ? 'ex.: Acțiuni globale, Obligațiuni, S&P 500'
+                    : 'ex.: Tehnologie, Energie, Servicii financiare'
+              }
+            >
+              <Input value={sector} onChange={(e) => setSector(e.target.value)} maxLength={60} />
+            </Field>
+            <Field label="Țara" hint={asset.type === 'etf' ? 'Lasă gol pentru un ETF pe mai multe țări.' : 'ex.: SUA, România, Germania'}>
+              <Input value={country} onChange={(e) => setCountry(e.target.value)} maxLength={60} />
+            </Field>
+          </div>
+        )}
 
         <Field
           label={isBond ? 'Preț manual (% din nominal)' : `Preț manual (${asset.currency})`}

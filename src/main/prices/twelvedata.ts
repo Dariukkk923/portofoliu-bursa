@@ -4,6 +4,7 @@
  */
 import type { AssetType, SymbolSearchResult } from '@shared/types';
 import {
+  fetchImage,
   fetchJson,
   parseCryptoSymbol,
   parseFxSymbol,
@@ -12,6 +13,7 @@ import {
   splitExchangeSuffix,
   toNumber,
   type HistoryResult,
+  type LogoImage,
   type PriceProvider,
   type Quote,
   type SymbolRef
@@ -79,6 +81,20 @@ export class TwelveDataProvider implements PriceProvider {
       asOf: data.timestamp ? new Date(Number(data.timestamp) * 1000).toISOString() : new Date().toISOString(),
       name: data.name ?? null
     };
+  }
+
+  /** Logo-ul companiei: endpoint-ul „/logo” întoarce adresa imaginii. */
+  async getLogo(ref: SymbolRef): Promise<LogoImage | null> {
+    if (ref.type === 'fx' || ref.type === 'bond') return null;
+    let data: Json;
+    try {
+      data = await this.call('/logo', this.symbolParams(ref));
+    } catch (err) {
+      if (err instanceof ProviderError && err.kind === 'notfound') return null;
+      throw err;
+    }
+    const url = String(data.url ?? data.logo_base ?? '');
+    return /^https:\/\//.test(url) ? fetchImage(url) : null;
   }
 
   async getHistory(ref: SymbolRef, from: string, to: string): Promise<HistoryResult> {

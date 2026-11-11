@@ -1,5 +1,6 @@
 /** Lista de brokeri a utilizatorului. */
-import type { Broker } from '@shared/types';
+import type { Broker, BrokerInput, BrokerResidence } from '@shared/types';
+import { guessResidence } from '@shared/tax';
 import type { Db } from '../db/database';
 import { assert, rowToBroker } from './common';
 
@@ -33,12 +34,15 @@ export function findBrokerByName(db: Db, userId: number, name: string): Broker |
   return r ? rowToBroker(r) : null;
 }
 
-export function createBroker(db: Db, userId: number, input: { name: string; notes?: string | null }): Broker {
+const cleanResidence = (value: unknown, name: string): BrokerResidence =>
+  value === 'ro' || value === 'foreign' ? value : guessResidence(name);
+
+export function createBroker(db: Db, userId: number, input: BrokerInput): Broker {
   const name = cleanName(input.name);
   assert(!findBrokerByName(db, userId, name), 'Ai deja un broker cu acest nume.');
   const info = db
-    .prepare('INSERT INTO brokers (user_id, name, notes) VALUES (?, ?, ?)')
-    .run(userId, name, input.notes?.trim() || null);
+    .prepare('INSERT INTO brokers (user_id, name, notes, residence) VALUES (?, ?, ?, ?)')
+    .run(userId, name, input.notes?.trim() || null, cleanResidence(input.residence, name));
   return getBroker(db, userId, Number(info.lastInsertRowid)) as Broker;
 }
 
@@ -46,15 +50,18 @@ export function updateBroker(
   db: Db,
   userId: number,
   id: number,
-  input: { name: string; notes?: string | null }
+  input: BrokerInput
 ): Broker {
-  assert(getBroker(db, userId, id), 'Brokerul nu a fost găsit.');
+  const current = getBroker(db, userId, id);
+  assert(current, 'Brokerul nu a fost găsit.');
   const name = cleanName(input.name);
   const other = findBrokerByName(db, userId, name);
   assert(!other || other.id === id, 'Ai deja un broker cu acest nume.');
-  db.prepare('UPDATE brokers SET name = ?, notes = ? WHERE id = ? AND user_id = ?').run(
+  const residence = input.residence === 'ro' || input.residence === 'foreign' ? input.residence : current.residence;
+  db.prepare('UPDATE brokers SET name = ?, notes = ?, residence = ? WHERE id = ? AND user_id = ?').run(
     name,
     input.notes?.trim() || null,
+    residence,
     id,
     userId
   );

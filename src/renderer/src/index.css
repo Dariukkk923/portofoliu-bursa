@@ -16,17 +16,21 @@
   --line: #e2e7ee;
   --ink: #0f172a;
   --ink-2: #475569;
-  --ink-3: #8593a6;
-  --accent: #2a6fd0;
+  --ink-3: #617084;
+  --accent: #2563c4;
   --accent-ink: #ffffff;
-  --accent-soft: #e6effc;
+  --accent-soft: #e8f0fc;
   /* verde = profit, roșu = pierdere */
-  --gain: #15803d;
+  --gain: #127536;
   --gain-soft: #e3f5e8;
   --loss: #c02626;
   --loss-soft: #fdeaea;
   --warn: #9a6200;
   --warn-soft: #fdf2d8;
+  --danger-ink: #ffffff;
+  --overlay: rgb(15 23 42 / 0.45);
+  --card-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.05);
+  --pop-shadow: 0 12px 32px rgb(15 23 42 / 0.16), 0 2px 6px rgb(15 23 42 / 0.08);
   /* paleta categorială a graficelor (ordine fixă, validată pentru daltonism) */
   --series-1: #2a78d6;
   --series-2: #eb6834;
@@ -47,7 +51,7 @@
   --line: #2a3442;
   --ink: #e8edf4;
   --ink-2: #a3b0c0;
-  --ink-3: #6f7d8f;
+  --ink-3: #8794a6;
   --accent: #4a92ea;
   --accent-ink: #06121f;
   --accent-soft: #17293f;
@@ -57,6 +61,10 @@
   --loss-soft: #3a1818;
   --warn: #f2b84b;
   --warn-soft: #3a2c10;
+  --danger-ink: #2a0a0a;
+  --overlay: rgb(0 0 0 / 0.6);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  --pop-shadow: 0 16px 40px rgb(0 0 0 / 0.55);
   --series-1: #3987e5;
   --series-2: #d95926;
   --series-3: #199e70;
@@ -85,7 +93,28 @@
   --color-loss-soft: var(--loss-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
-  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --color-danger-ink: var(--danger-ink);
+  --color-overlay: var(--overlay);
+  --shadow-card: var(--card-shadow);
+  --shadow-pop: var(--pop-shadow);
+  /* Inter e inclus în aplicație (merge și fără internet). */
+  --font-sans: 'Inter Variable', 'Inter', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  /* Ierarhia textului: etichete mici, text de lucru, titluri, valori. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.25rem;
+  --text-md: 0.9375rem;
+  --text-md--line-height: 1.375rem;
+  --text-stat: 1.375rem;
+  --text-stat--line-height: 1.75rem;
+  --text-hero: 1.75rem;
+  --text-hero--line-height: 2.25rem;
+}
+
+/* Marginea de jos a iPhone-ului (bara de acasă), pentru tab bar și ferestrele de jos. */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 html,
@@ -101,11 +130,25 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  /* Cifre tabulare peste tot: sumele se aliniază pe coloane și nu „sar” când se schimbă. */
+  font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Cifrele din tabele se aliniază pe coloane. */
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Focus vizibil la tastatură pe orice element interactiv. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Săgeata ▲▼ de lângă profit/pierdere, proporțională cu textul. */
+.pnl-arrow {
+  font-size: 0.62em;
+  line-height: 1;
 }
 
 button:not(:disabled),
@@ -126,6 +169,17 @@ input[type='date']::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
 
+/* Cercul cu inițialele tickerului (când nu există logo): nuanța vine din simbol (--h). */
+.ticker-initials {
+  background: hsl(var(--h) 55% 92%);
+  color: hsl(var(--h) 55% 28%);
+  letter-spacing: -0.02em;
+}
+.dark .ticker-initials {
+  background: hsl(var(--h) 30% 22%);
+  color: hsl(var(--h) 65% 82%);
+}
+
 /* Recharts: fără contur de focus pe elementele SVG la click. */
 .recharts-wrapper :focus {
   outline: none;
@@ -138,5 +192,45 @@ input[type='date']::-webkit-calendar-picker-indicator {
   }
 }
 .animate-in {
-  animation: fade-in 0.16s ease-out;
+  animation: fade-in 0.18s ease-out;
+}
+
+/* Fereastra de jos pe telefon urcă din marginea ecranului. */
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+.animate-sheet {
+  animation: sheet-in 0.2s ease-out;
+}
+
+/* Blocurile gri care țin locul conținutului până se încarcă. */
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--line) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* Fără animații pentru cine le-a oprit din sistem. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Hașura pentru sumele estimate (legenda graficului de venit și calendarul de dividende). */
+.income-hatch {
+  background-color: color-mix(in srgb, var(--series-1) 18%, transparent);
+  background-image: repeating-linear-gradient(45deg, var(--series-1) 0 2px, transparent 2px 5px);
 }

@@ -4,11 +4,13 @@ import {
   PROVIDER_IDS,
   REFRESH_INTERVALS,
   type CostMethod,
+  type PortfolioScope,
   type ProviderId,
   type Settings,
   type SettingsUpdate,
   type Theme
 } from '@shared/types';
+import { BENCHMARKS, DEFAULT_BENCHMARK } from '@shared/benchmarks';
 import type { Db } from '../db/database';
 import type { SecretBox } from '../secrets';
 import { assert } from './common';
@@ -20,6 +22,9 @@ interface SettingsRow {
   primary_provider: ProviderId;
   refresh_interval_min: number;
   last_price_update: string | null;
+  active_portfolio: string | null;
+  benchmark: string | null;
+  concentration_limit: number | null;
 }
 
 function row(db: Db, userId: number): SettingsRow {
@@ -29,6 +34,23 @@ function row(db: Db, userId: number): SettingsRow {
     r = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId) as SettingsRow;
   }
   return r;
+}
+
+/**
+ * Portofoliul selectat ultima dată: „all” sau id-ul unui portofoliu activ al utilizatorului.
+ * Dacă lipsește (ex.: portofoliul a fost șters sau arhivat), primul portofoliu activ.
+ */
+function activeScope(db: Db, userId: number, stored: string | null): PortfolioScope {
+  if (stored === 'all') return 'all';
+  const id = Number(stored);
+  if (stored && Number.isInteger(id)) {
+    const ok = db.prepare('SELECT 1 FROM portfolios WHERE id = ? AND user_id = ? AND archived = 0').get(id, userId);
+    if (ok) return id;
+  }
+  const first = db.prepare('SELECT id FROM portfolios WHERE user_id = ? AND archived = 0 ORDER BY sort_order, id LIMIT 1').get(userId) as
+    | { id: number }
+    | undefined;
+  return first?.id ?? 'all';
 }
 
 export function getSettings(db: Db, userId: number): Settings {
@@ -50,6 +72,9 @@ export function getSettings(db: Db, userId: number): Settings {
     primaryProvider: PROVIDER_IDS.includes(r.primary_provider) ? r.primary_provider : 'yahoo',
     refreshIntervalMin: r.refresh_interval_min,
     lastPriceUpdate: r.last_price_update,
+    activePortfolio: activeScope(db, userId, r.active_portfolio),
+    benchmark: r.benchmark || DEFAULT_BENCHMARK,
+    concentrationLimit: r.concentration_limit ?? 0.2,
     apiKeys
   };
 }
@@ -80,10 +105,38 @@ export function updateSettings(db: Db, userId: number, patch: SettingsUpdate): S
     );
     next.refresh_interval_min = patch.refreshIntervalMin;
   }
+  if (patch.activePortfolio !== undefined) {
+    const scope = patch.activePortfolio;
+    if (scope === 'all') next.active_portfolio = 'all';
+    else {
+      const ok = Number.isInteger(scope) && db.prepare('SELECT 1 FROM portfolios WHERE id = ? AND user_id = ?').get(scope, userId);
+      assert(ok, 'Portofoliul nu a fost găsit.');
+      next.active_portfolio = String(scope);
+    }
+  }
+  if (patch.benchmark !== undefined) {
+    assert(BENCHMARKS.some((b) => b.symbol === patch.benchmark), 'Indice de referință necunoscut.');
+    next.benchmark = patch.benchmark;
+  }
+  if (patch.concentrationLimit !== undefined) {
+    const limit = Number(patch.concentrationLimit);
+    assert(Number.isFinite(limit) && limit >= 0.05 && limit <= 0.9, 'Pragul de concentrare trebuie să fie între 5% și 90%.');
+    next.concentration_limit = Math.round(limit * 1000) / 1000;
+  }
   db.prepare(
-    `UPDATE settings SET base_currency = ?, cost_method = ?, theme = ?, primary_provider = ?, refresh_interval_min = ?
-     WHERE user_id = ?`
-  ).run(next.base_currency, next.cost_method, next.theme, next.primary_provider, next.refresh_interval_min, userId);
+    `UPDATE settings SET base_currency = ?, cost_method = ?, theme = ?, primary_provider = ?, refresh_interval_min = ?,
+       active_portfolio = ?, benchmark = ?, concentration_limit = ? WHERE user_id = ?`
+  ).run(
+    next.base_currency,
+    next.cost_method,
+    next.theme,
+    next.primary_provider,
+    next.refresh_interval_min,
+    next.active_portfolio,
+    next.benchmark || DEFAULT_BENCHMARK,
+    next.concentration_limit ?? 0.2,
+    userId
+  );
   return getSettings(db, userId);
 }
 

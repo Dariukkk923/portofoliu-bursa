@@ -83,7 +83,7 @@ describe('actualizarea prețurilor', () => {
     expect(cache.get('USDRON=X')?.price).toBe(4.6);
     expect(getOverview(db, user.id).totals.totalValue).toBeCloseTo(10 * 210 * 4.6 + 100 * 0.8, 6);
     // Istoricul a fost descărcat o dată pentru fiecare simbol, de la data primei tranzacții.
-    expect(yahoo.calls.filter((c) => c.startsWith('history:')).sort()).toEqual(['history:AAPL', 'history:SNP.RO', 'history:USDRON=X']);
+    expect(yahoo.calls.filter((c) => c.startsWith('history:')).sort()).toEqual(['history:AAPL', 'history:SNP.RO', 'history:USDRON=X', 'history:^GSPC']); // și indicele de referință (doar istoric)
     expect(db.prepare("SELECT from_date FROM history_sync WHERE symbol = 'AAPL'").get()).toEqual({ from_date: '2024-02-12' });
   });
 
@@ -98,7 +98,7 @@ describe('actualizarea prețurilor', () => {
 
     await svc.refresh(user.id, { force: true }); // „Actualizează acum”
     expect(yahoo.calls.filter((c) => c.startsWith('quote:')).length).toBe(6);
-    expect(yahoo.calls.filter((c) => c.startsWith('history:')).length).toBe(3); // istoricul rămâne în cache
+    expect(yahoo.calls.filter((c) => c.startsWith('history:')).length).toBe(4); // istoricul rămâne în cache
   });
 
   it('trece automat la alt provider când cel principal dă eroare sau nu are simbolul', async () => {

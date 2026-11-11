@@ -26,12 +26,20 @@ function group<K extends keyof Api>(name: K): Api[K] {
 export const api: Api = {
   auth: group('auth'),
   brokers: group('brokers'),
+  portfolios: group('portfolios'),
   assets: group('assets'),
   portfolio: group('portfolio'),
   transactions: group('transactions'),
   settings: group('settings'),
   prices: group('prices'),
-  brokerImport: group('brokerImport'),
+  imports: group('imports'),
+  watchlists: group('watchlists'),
+  logos: group('logos'),
+  dividends: group('dividends'),
+  tax: group('tax'),
+  journal: group('journal'),
+  simulator: group('simulator'),
+  goals: group('goals'),
   backup: group('backup'),
   app: group('app')
 };

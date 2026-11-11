@@ -39,7 +39,13 @@ const shot = async (name) => {
   await page.screenshot({ path: resolve(outDir, `${name}.png`) });
   console.log('captură:', name);
 };
-const nav = (label) => page.getByRole('navigation').getByRole('button', { name: label }).click();
+/** Alege portofoliul din selectorul din bara de sus. */
+async function selectPortfolio(name) {
+  await page.getByRole('button', { name: 'Alege portofoliul' }).click();
+  await page.getByRole('menuitemradio', { name }).click();
+}
+
+const nav = (label) => page.getByRole('navigation').getByRole('button', { name: label, exact: true }).click();
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
 };
@@ -189,12 +195,141 @@ try {
   await shot('06-demo-dashboard');
   await page.locator('main').evaluate((el) => el.scrollTo(0, el.scrollHeight));
   await shot('07-demo-dashboard-jos');
+  // Graficul randament vs. indicele de referință (S&P 500 implicit).
+  const benchTitle = page.getByText(/Randamentul tău vs\. /);
+  check((await benchTitle.count()) === 1, 'Lipsește graficul „Randamentul tău vs. S&P 500” de pe panoul principal.');
+  await benchTitle.scrollIntoViewIfNeeded();
+  await shot('07b-demo-benchmark');
 
   await nav('Portofoliu');
   await page.getByRole('cell', { name: /AAPL/ }).first().waitFor();
   await shot('08-demo-portofoliu');
   await page.getByRole('radio', { name: 'Pe broker' }).click();
   await shot('09-demo-portofoliu-pe-broker');
+
+  // Ecranul „Risc”: scor, volatilitate, concentrare, expuneri.
+  await nav('Risc');
+  await page.getByText('Scor de diversificare').waitFor({ timeout: 30000 });
+  check((await page.getByText('Concentrare: ponderea fiecărei poziții').count()) === 1, 'Ecranul Risc nu are tabelul de concentrare.');
+  await shot('09e-risc');
+  await page.locator('main').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await shot('09f-risc-jos');
+
+  // Calendarul de dividende: venitul pe luni, calendarul lunii și randamentele.
+  await nav('Dividende');
+  await page.getByText('Venit pasiv pe luni').first().waitFor({ timeout: 30000 });
+  check((await page.getByText('Randament din dividende pe poziții').count()) === 1, 'Pagina Dividende nu are tabelul de randamente.');
+  await shot('09g-dividende');
+  await page.locator('main').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await shot('09h-dividende-jos');
+
+  // Raportul fiscal pe 2025 (toate portofoliile), export PDF și CSV.
+  await nav('Raport fiscal');
+  await page.getByText('Raport informativ pentru Declarația Unică').first().waitFor({ timeout: 30000 });
+  await page.getByLabel('Anul raportului').selectOption('2025');
+  await page.getByText('Brokeri străini').first().waitFor({ timeout: 30000 });
+  check((await page.getByText('Brokeri din România').count()) >= 1, 'Raportul fiscal nu are secțiunea „Brokeri din România” (Tradeville).');
+  await shot('09i-raport-fiscal');
+  await page.locator('main').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await shot('09j-raport-fiscal-detalii');
+  const taxPdf = resolve(outDir, 'raport-fiscal-2025.pdf');
+  await stubDialogs(taxPdf);
+  await page.getByRole('button', { name: 'Export PDF' }).click();
+  await page.getByText(/Raportul fiscal 2025 a fost salvat/).first().waitFor({ timeout: 30000 });
+  check(existsSync(taxPdf) && readFileSync(taxPdf).subarray(0, 5).toString() === '%PDF-', 'Exportul PDF al raportului fiscal nu a creat un PDF.');
+  const taxCsv = resolve(outDir, 'raport-fiscal-2025.csv');
+  await stubDialogs(taxCsv);
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  await page.waitForTimeout(1500);
+  check(existsSync(taxCsv) && readFileSync(taxCsv, 'utf8').includes('Data;Tip;Broker;Tip broker'), 'Exportul CSV al raportului fiscal lipsește.');
+
+  // Jurnalul: o notă cu plan pe AAPL (înainte de vânzarea din demo), apoi planul lângă rezultatul vânzării.
+  await nav('Jurnal');
+  await page.getByText('Jurnalul este gol').waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Notează în jurnal' }).click();
+  const position = page.getByLabel('Poziția');
+  await position.selectOption((await position.locator('option', { hasText: 'AAPL' }).first().getAttribute('value')) ?? '');
+  await page.getByLabel('Data', { exact: true }).fill('2025-01-15');
+  await page.getByLabel('Motivul deciziei').fill('Servicii în creștere și răscumpărări de acțiuni.');
+  await page.getByLabel(/Preț țintă/).fill('250');
+  await page.getByLabel(/Stop-loss/).fill('180');
+  await page.getByLabel('Orizont de timp').selectOption('12');
+  await page.getByRole('radio', { name: 'Încredere 4 din 5' }).click();
+  await page.getByLabel(/^Etichete/).fill('tech, termen lung');
+  await page.getByRole('button', { name: 'Salvează' }).click();
+  await page.getByText('Planul tău vs. rezultatul real').first().waitFor({ timeout: 30000 });
+  check((await page.getByText('#tech').count()) >= 1, 'Eticheta din jurnal nu apare în cronologie.');
+  await shot('09k-jurnal');
+  const journalCsvFile = resolve(outDir, 'jurnal.csv');
+  await stubDialogs(journalCsvFile);
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  await page.getByText(/Jurnalul \(\d+ intrări\) a fost salvat/).first().waitFor({ timeout: 30000 });
+  check(readFileSync(journalCsvFile, 'utf8').includes('Servicii în creștere'), 'Exportul CSV al jurnalului nu conține nota.');
+  await nav('Portofoliu');
+  await page.getByRole('button', { name: 'Vinde AAPL' }).first().click();
+  await page.getByText(/Planul tău din 15\.01\.2025/).waitFor({ timeout: 30000 });
+  await shot('09l-vanzare-cu-plan');
+  await page.getByRole('button', { name: 'Renunță' }).click();
+  console.log('jurnal: notă cu plan, comparație la vânzare, export CSV');
+  console.log(`raport fiscal: PDF ${Math.round(readFileSync(taxPdf).length / 1024)} KB, CSV ${readFileSync(taxCsv, 'utf8').trim().split(/\r?\n/).length} rânduri`);
+
+  // Simulatorul: la deschidere, depunerile din demo investite în S&P 500 (istoricul vine de pe internet).
+  await nav('Simulator');
+  const simDone = page.getByText(/Dacă depunerile tale ar fi fost investite/).or(page.locator('form [role=status]'));
+  await simDone.first().waitFor({ timeout: 90000 });
+  if ((await page.getByText(/Dacă depunerile tale ar fi fost investite/).count()) === 1) {
+    await shot('09m-simulator-piata');
+    await page.getByRole('radio', { name: 'Investiție lunară' }).click();
+    await page.getByRole('button', { name: 'Simulează' }).click();
+    await page.getByText('Valoarea de azi').waitFor({ timeout: 90000 });
+    await shot('09n-simulator-dca');
+    console.log('simulator: comparație cu piața și investiție lunară');
+  } else {
+    await shot('09m-simulator-fara-internet');
+    console.log('simulator: fără istoric (probabil fără internet) - mesajul de eroare apare');
+  }
+
+  // Obiectivele: un obiectiv cu dată-țintă, proiecția Monte Carlo, sliderele și valorile în bani de azi.
+  await nav('Obiective');
+  await page.getByText('Niciun obiectiv încă').waitFor({ timeout: 90000 });
+  await page.getByRole('button', { name: 'Adaugă obiectiv' }).click();
+  await page.getByLabel('Numele obiectivului').fill('Fond pentru casă');
+  await page.getByLabel(/^Suma-țintă/).fill('250000');
+  await page.getByLabel(/^Data-țintă/).fill('2032-12-31');
+  await page.getByRole('button', { name: 'Salvează' }).click();
+  await page.getByText(/Ajungi la .+ în aproximativ|Ai atins deja obiectivul|În scenariul realist nu ajungi/).first().waitFor({ timeout: 90000 });
+  check((await page.getByText(/% șanse/).count()) === 1, 'Lipsește probabilitatea de a atinge obiectivul până la data-țintă.');
+  check((await page.getByText(/trebuie să depui aproximativ|chiar fără depuneri noi/).count()) === 1, 'Lipsește contribuția lunară necesară.');
+  check((await page.getByText(/Proiecție estimativă bazată pe date istorice/).count()) === 1, 'Lipsește avertismentul proiecției.');
+  await shot('09o-obiective');
+  await page.getByRole('slider', { name: 'Contribuția lunară' }).evaluate((el) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '3000');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.getByRole('button', { name: 'Înapoi la datele din aplicație' }).waitFor();
+  await page.getByRole('radio', { name: /În bani de azi/ }).click();
+  await shot('09p-obiective-slider-real');
+  await nav('Panou principal');
+  const goalsCard = page.locator('main').getByRole('heading', { name: 'Obiective' });
+  await goalsCard.waitFor({ timeout: 60000 });
+  await goalsCard.scrollIntoViewIfNeeded();
+  await shot('09q-panou-obiective');
+  console.log('obiective: proiecție, slider, bani de azi, card pe panoul principal');
+
+  // Portofoliile: contul demo are „Principal” și „Crypto”; ecranul de comparație și selectorul din bara de sus.
+  await nav('Portofolii');
+  await page.getByRole('cell', { name: /Crypto/ }).first().waitFor({ timeout: 30000 });
+  check((await page.getByRole('cell', { name: /Principal/ }).count()) === 1, 'Comparația portofoliilor nu conține „Principal”.');
+  await shot('09b-demo-portofolii');
+  await page.getByRole('button', { name: 'Alege portofoliul' }).click();
+  await page.getByRole('menuitemradio', { name: /Crypto/ }).waitFor();
+  await shot('09c-selector-portofoliu');
+  await page.getByRole('menuitemradio', { name: /Crypto/ }).click();
+  await nav('Portofoliu');
+  await page.getByRole('cell', { name: /BTC-USD/ }).first().waitFor();
+  check((await page.getByRole('cell', { name: /AAPL/ }).count()) === 0, 'Portofoliul „Crypto” arată și pozițiile din „Principal”.');
+  await shot('09d-portofoliu-crypto');
+  await selectPortfolio('Toate portofoliile');
 
   await nav('Tranzacții');
   await page.getByRole('cell', { name: /NVDA/ }).first().waitFor();
@@ -226,6 +361,12 @@ try {
   await nav('Panou principal');
   await page.getByText('Valoarea totală a portofoliului').waitFor();
   await shot('13-demo-dashboard-dark');
+  await nav('Risc');
+  await page.getByText('Scor de diversificare').waitFor();
+  await shot('13b-risc-dark');
+  await nav('Obiective');
+  await page.getByText(/Ajungi la .+ în aproximativ|Ai atins deja obiectivul|În scenariul realist nu ajungi/).first().waitFor({ timeout: 60000 });
+  await shot('13c-obiective-dark');
 
   // 7. Datele demo nu sunt vizibile din contul „ana” (izolare între utilizatori).
   await logout();
@@ -238,43 +379,99 @@ try {
   await shot('14-ana-tranzactii');
 
   // 8. Import CSV: exportul demo conține și o vânzare SNP.RO care se adaugă la poziția Anei.
+  // Butonul din pagina Tranzacții duce la ecranul Import și deschide direct alegerea fișierului.
   await stubDialogs(csvFile);
   await page.getByRole('button', { name: 'Import Excel / CSV' }).click();
   await page.getByText(/tranzacții importate/).waitFor();
-  await page.waitForTimeout(500);
+  // Exportul demo are coloana „portofoliu”: tranzacțiile crypto au intrat în portofoliul „Crypto”, creat automat.
+  await selectPortfolio('Toate portofoliile');
+  await nav('Tranzacții');
+  await page.waitForTimeout(800);
   rows = await page.locator('tbody tr').count();
   check(rows === demoRows + 1, `După import ar trebui ${demoRows + 1} tranzacții, sunt ${rows}.`);
   console.log(`import CSV: ${rows} tranzacții în contul ana`);
 
-  // 8b. Import din fișierul Excel exportat din xStation (XTB), cu același buton.
+  // 8b. Import din extrasul Excel exportat din xStation (XTB), din ecranul Import: previzualizare, apoi import.
   const xtbFile = resolve(outDir, 'USD_1234567_2025-01-01_2025-12-31.xlsx');
   writeXtbReport(xtbFile);
   await stubDialogs(xtbFile);
   await page.getByRole('button', { name: 'Import Excel / CSV' }).click();
-  // AAPL are deja tranzacții introduse manual la XTB (din CSV): aplicația întreabă ce face cu ele.
-  await page.getByRole('heading', { name: 'Ai deja tranzacții introduse manual' }).waitFor({ timeout: 30000 });
-  await shot('14b-import-xtb-intrebare');
-  await page.getByRole('button', { name: 'Păstrează-le' }).click();
-  await page.getByRole('heading', { name: 'Import finalizat' }).waitFor();
+  await page.getByText('XTB (xStation)').first().waitFor({ timeout: 30000 });
+  // AAPL are deja tranzacții introduse manual la XTB (din CSV): aplicația le arată și nu le înlocuiește fără acord.
+  await page.getByText(/introduse manual/).waitFor();
+  const importButton = page.getByRole('button', { name: /^Importă 4 tranzacții$/ });
+  await importButton.waitFor();
+  await shot('14b-import-previzualizare');
+  await importButton.click();
+  await page.getByText('Import finalizat').waitFor();
   await page.getByText('Am adăugat').waitFor();
-  check((await page.getByRole('dialog').getByRole('cell', { name: /MSFT/ }).count()) === 1, 'Poziția MSFT nu apare în rezumatul importului.');
-  await shot('14c-import-xtb-rezultat');
+  check((await page.getByRole('cell', { name: /^MSFT/ }).count()) >= 1, 'Poziția MSFT nu apare în rezumatul importului.');
+  await shot('14c-import-rezultat');
   await page.getByRole('button', { name: 'Gata' }).click();
+  await nav('Tranzacții');
   await page.getByRole('cell', { name: /MSFT/ }).first().waitFor();
+  await page.waitForTimeout(500);
   rows = await page.locator('tbody tr').count();
-  check(rows === demoRows + 4, `După importul XTB ar trebui ${demoRows + 4} tranzacții, sunt ${rows}.`);
+  check(rows === demoRows + 5, `După importul XTB ar trebui ${demoRows + 5} tranzacții, sunt ${rows}.`);
   const dividend = page.locator('tbody tr', { hasText: 'MSFT' }).filter({ hasText: 'Dividend' });
   check((await dividend.count()) === 1, 'Dividendul MSFT nu a fost importat.');
   check((await dividend.first().innerText()).includes('0,37'), 'Impozitul reținut la dividendul MSFT lipsește.');
 
-  // Reimportul aceluiași fișier nu adaugă nimic.
+  // Reimportul aceluiași fișier: totul este recunoscut ca deja în aplicație.
   await page.getByRole('button', { name: 'Import Excel / CSV' }).click();
-  await page.getByRole('button', { name: 'Păstrează-le' }).click();
-  await page.getByRole('heading', { name: 'Nimic nou de importat' }).waitFor();
-  await page.getByRole('button', { name: 'Gata' }).click();
+  await page.getByRole('button', { name: 'Nimic nou de importat' }).waitFor({ timeout: 30000 });
+  check(await page.getByRole('button', { name: 'Nimic nou de importat' }).isDisabled(), 'Reimportul ar adăuga din nou tranzacții.');
+  await page.getByRole('button', { name: 'Renunță' }).click();
+  console.log('import XTB (Excel): 4 tranzacții noi, fără dubluri la reimport');
+
+  // Anularea importului: din lista importurilor anterioare.
+  await page.getByText('Importuri anterioare').waitFor();
+  await shot('14d-importuri-anterioare');
+  const xtbBatch = page.locator('tbody tr', { hasText: 'USD_1234567' });
+  await xtbBatch.getByRole('button', { name: 'Anulează' }).click();
+  await page.getByRole('button', { name: 'Anulează importul' }).click();
+  await page.getByText(/Importul a fost anulat/).waitFor();
+  await nav('Tranzacții');
+  await page.waitForTimeout(800);
   rows = await page.locator('tbody tr').count();
-  check(rows === demoRows + 4, `Reimportul a dublat tranzacțiile: ${rows} în loc de ${demoRows + 4}.`);
-  console.log(`import XTB (Excel): 3 tranzacții noi, fără dubluri la reimport`);
+  check(rows === demoRows + 1, `După anularea importului XTB ar trebui ${demoRows + 1} tranzacții, sunt ${rows}.`);
+  console.log('anularea importului: tranzacțiile XTB au fost șterse');
+
+  // 8c. Watchlist: urmărirea unui simbol cu preț țintă, o listă nouă și cumpărarea direct din listă.
+  await nav('Watchlist');
+  await page.getByRole('tab', { name: /De urmărit/ }).waitFor();
+  const watchSearch = page.getByLabel('Caută simbolul de adăugat în listă');
+  await watchSearch.fill('NVDA');
+  await page.getByRole('button', { name: 'Adaugă', exact: true }).click();
+  await page.getByText('NVDA a fost adăugat în listă.').waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Editează NVDA (preț țintă, notă, listă)' }).click();
+  await page.getByLabel(/Preț țintă de cumpărare/).fill('100');
+  await page.getByLabel('Notă personală').fill('aștept o corecție');
+  await page.getByRole('button', { name: 'Salvează' }).click();
+  await page.getByRole('cell', { name: 'aștept o corecție' }).waitFor();
+  check((await page.getByRole('cell', { name: /^100,00 USD/ }).count()) === 1, 'Prețul țintă NVDA nu apare în listă.');
+
+  await page.getByRole('button', { name: 'Listă nouă' }).click();
+  await page.getByLabel('Numele listei').fill('Dividende');
+  await page.getByRole('button', { name: 'Salvează' }).click();
+  await page.getByRole('tab', { name: /Dividende/, selected: true }).waitFor();
+  await watchSearch.fill('KO');
+  await page.getByRole('button', { name: 'Adaugă', exact: true }).click();
+  await page.getByText('KO a fost adăugat în listă.').waitFor({ timeout: 30000 });
+  await page.getByRole('tab', { name: /De urmărit/ }).click();
+  await page.getByRole('cell', { name: 'aștept o corecție' }).waitFor();
+  await shot('14e-watchlist');
+
+  // Cumpărarea din watchlist: formularul vine completat, iar instrumentul iese din listă.
+  await page.getByRole('button', { name: 'Cumpără' }).first().click();
+  await page.getByRole('heading', { name: 'Adaugă activ' }).waitFor();
+  check((await page.getByLabel('Simbol / ticker').inputValue()) === 'NVDA', 'Formularul de cumpărare nu are simbolul din watchlist.');
+  await page.getByLabel('Număr de unități').fill('2');
+  await page.getByLabel(/^Preț de cumpărare/).fill('120');
+  await page.getByRole('button', { name: 'Adaugă achiziția' }).click();
+  await page.getByText(/Achiziția NVDA a fost adăugată/).waitFor();
+  await page.getByText('Lista este goală').waitFor();
+  console.log('watchlist: simbol urmărit cu preț țintă, listă nouă, cumpărare din listă');
 
   // 9. Restaurare din backup: datele Anei sunt înlocuite cu cele din backup-ul demo.
   await nav('Setări');

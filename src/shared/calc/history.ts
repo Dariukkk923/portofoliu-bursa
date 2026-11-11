@@ -7,15 +7,17 @@
  */
 import type { CostMethod, HistoryPoint } from '../types';
 import { addDays, daysBetween } from '../dates';
-import { Ledger, sortTransactions, splitFactor, type LedgerTx } from './engine';
+import { dec, Decimal, toNum, ZERO, type DecValue } from './decimal';
+import { accountKey, Ledger, sortTransactions, splitFactorExact, type LedgerTx } from './engine';
+import type { Flow, PerformancePoint } from './returns';
 
 export interface HistoryAsset {
   currency: string;
-  multiplier: number;
+  multiplier: DecValue;
 }
 
 export interface HistoricalPrice {
-  price: number;
+  price: DecValue;
   /**
    * True dacă prețul este ajustat la split-urile ulterioare (cum întoarce Yahoo).
    * În acest caz cantitatea de la acea dată trebuie ajustată la fel, altfel
@@ -33,53 +35,134 @@ export interface SeriesInput {
   /** Ultimul preț de închidere cunoscut la data dată sau înainte; null dacă nu există. */
   priceOn: (assetId: number, date: string) => HistoricalPrice | null;
   /** Cursul monedei față de moneda de bază la data dată. */
-  fxOn: (currency: string, date: string) => number;
+  fxOn: (currency: string, date: string) => DecValue;
 }
 
-export function buildValueSeries(input: SeriesInput): HistoryPoint[] {
+/** Motorul și funcția de evaluare a activelor deținute la o dată, comune graficelor de valoare și de randament. */
+function createValuer(input: SeriesInput) {
   const txs = sortTransactions(input.transactions);
   const splits = txs.filter((t) => t.type === 'split');
   const ledger = new Ledger({
     method: input.method,
     multiplierOf: (id) => input.assets.get(id)?.multiplier ?? 1,
+    currencyOf: (id) => input.assets.get(id)?.currency,
+    fxAt: (currency, date) => input.fxOn(currency, date),
     strict: false
   });
 
   /** Produsul split-urilor ulterioare datei, care afectează poziția dată. */
-  const futureSplitFactor = (assetId: number, brokerId: number, date: string): number => {
-    let factor = 1;
+  const futureSplitFactor = (assetId: number, brokerId: number, portfolioId: number | null, date: string): Decimal => {
+    let factor = dec(1);
     for (const s of splits) {
       if (s.assetId !== assetId || s.date <= date) continue;
       if (s.brokerId != null && s.brokerId !== brokerId) continue;
-      factor *= splitFactor(s);
+      if (s.portfolioId != null && s.portfolioId !== portfolioId) continue;
+      factor = factor.times(splitFactorExact(s));
     }
     return factor;
   };
 
-  const points: HistoryPoint[] = [];
-  let next = 0;
-  for (const date of input.dates) {
-    while (next < txs.length && txs[next].date <= date) ledger.apply(txs[next++]);
-
-    let value = 0;
-    let invested = 0;
+  /** Valoarea activelor deținute la data dată și suma investită în ele (costul la cursurile istorice). */
+  const holdingsAt = (date: string): { value: Decimal; invested: Decimal } => {
+    let value = ZERO;
+    let invested = ZERO;
     for (const p of ledger.list()) {
-      if (p.quantity <= 0) continue;
+      if (!p.exact.quantity.gt(0)) continue;
       const asset = input.assets.get(p.assetId);
       if (!asset) continue;
-      const fx = input.fxOn(asset.currency, date);
-      invested += p.costBasis * fx;
+      const fx = dec(input.fxOn(asset.currency, date));
+      // Suma investită: costul la cursurile din zilele cumpărărilor.
+      const cost = p.exact.costBasisBase ?? p.exact.costBasis.times(fx);
+      invested = invested.plus(cost);
 
       const hp = input.priceOn(p.assetId, date);
       if (!hp) {
         // Fără preț istoric (ex.: obligațiune cu preț manual): poziția se ia la cost.
-        value += p.costBasis * fx;
+        value = value.plus(cost);
         continue;
       }
-      const qty = hp.splitAdjusted ? p.quantity * futureSplitFactor(p.assetId, p.brokerId, date) : p.quantity;
-      value += qty * hp.price * asset.multiplier * fx;
+      const qty = hp.splitAdjusted ? p.exact.quantity.times(futureSplitFactor(p.assetId, p.brokerId, p.portfolioId, date)) : p.exact.quantity;
+      value = value.plus(qty.times(dec(hp.price)).times(dec(asset.multiplier)).times(fx));
     }
-    points.push({ date, value, invested });
+    return { value, invested };
+  };
+  return { txs, ledger, holdingsAt };
+}
+
+export function buildValueSeries(input: SeriesInput): HistoryPoint[] {
+  const { txs, ledger, holdingsAt } = createValuer(input);
+  const points: HistoryPoint[] = [];
+  let next = 0;
+  for (const date of input.dates) {
+    while (next < txs.length && txs[next].date <= date) ledger.apply(txs[next++]);
+    const { value, invested } = holdingsAt(date);
+    points.push({ date, value: toNum(value), invested: toNum(invested) });
+  }
+  return points;
+}
+
+export interface PerformanceInput extends SeriesInput {
+  /**
+   * Conturile (portofoliu + broker, vezi `accountKey`) la care se urmărește cash-ul (au
+   * depuneri/retrageri): valoarea include cash-ul lor, iar fluxurile sunt depunerile și
+   * retragerile. La celelalte, fluxurile sunt chiar cumpărările (bani intrați) și vânzările,
+   * dividendele, dobânzile (bani ieșiți).
+   */
+  trackedAccounts: Set<string>;
+}
+
+/** Suma unei tranzacții care intră sau iese din portofoliu, în moneda de bază la cursul zilei (plus = intrare). */
+export function externalFlow(t: LedgerTx, tracked: boolean, input: SeriesInput): Decimal {
+  const currencyOf = (): string => t.currency || (t.assetId != null ? (input.assets.get(t.assetId)?.currency ?? '') : '');
+  const reported = t.cashAmount !== null && t.cashAmount !== undefined && t.cashCurrency ? dec(t.cashAmount) : null;
+  const inBase = (amount: Decimal, currency: string): Decimal => (currency ? amount.times(dec(input.fxOn(currency, t.date))) : ZERO);
+  const net = dec(t.netAmount);
+  if (tracked) {
+    if (t.type === 'deposit') return inBase(net.abs(), currencyOf());
+    if (t.type === 'withdrawal') return inBase(net.abs().neg(), currencyOf());
+    if (t.type === 'adjustment') return inBase(net, currencyOf());
+    return ZERO;
+  }
+  // Fără cash urmărit: banii cumpărărilor vin din afară, iar încasările pleacă din portofoliu.
+  const mult = t.assetId != null ? dec(input.assets.get(t.assetId)?.multiplier ?? 1) : dec(1);
+  const trade = dec(t.quantity).times(dec(t.price)).times(mult);
+  switch (t.type) {
+    case 'buy':
+      return reported ? inBase(reported.abs(), t.cashCurrency as string) : inBase(trade.plus(dec(t.fee)), currencyOf());
+    case 'sell':
+      return (reported ? inBase(reported.abs(), t.cashCurrency as string) : inBase(trade.minus(dec(t.fee)), currencyOf())).neg();
+    case 'dividend':
+    case 'coupon':
+    case 'interest':
+      return (reported ? inBase(reported.abs(), t.cashCurrency as string) : inBase(net, currencyOf())).neg();
+    case 'fee':
+      return inBase(net.abs(), currencyOf());
+    default:
+      return ZERO;
+  }
+}
+
+/**
+ * Seria pentru randament (TWR/XIRR): la fiecare dată, valoarea portofoliului
+ * (active + cash-ul urmărit) și fluxurile externe din perioada care se încheie atunci.
+ */
+export function buildPerformanceSeries(input: PerformanceInput): PerformancePoint[] {
+  const { txs, ledger, holdingsAt } = createValuer(input);
+  const points: PerformancePoint[] = [];
+  let next = 0;
+  for (const date of input.dates) {
+    const flows: Flow[] = [];
+    while (next < txs.length && txs[next].date <= date) {
+      const t = txs[next++];
+      ledger.apply(t);
+      const amount = t.brokerId == null ? ZERO : externalFlow(t, input.trackedAccounts.has(accountKey(t.portfolioId, t.brokerId)), input);
+      if (!amount.isZero()) flows.push({ date: t.date, amount: toNum(amount) });
+    }
+    let value = holdingsAt(date).value;
+    for (const c of ledger.cashBalances()) {
+      if (input.trackedAccounts.has(accountKey(c.portfolioId, c.brokerId))) value = value.plus(c.exact.times(dec(input.fxOn(c.currency, date))));
+    }
+    points.push({ date, value: toNum(value), flows });
   }
   return points;
 }
