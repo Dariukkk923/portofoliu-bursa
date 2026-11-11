@@ -162,10 +162,22 @@ export function updateAsset(db: Db, userId: number, id: number, patch: AssetUpda
     next.manualPrice = cleanManualPrice(patch.manualPrice);
     next.manualPriceDate = next.manualPrice != null ? todayIso() : null;
   }
+  // Sectorul și țara completate manual nu mai sunt suprascrise de provider; ambele goale = înapoi la provider.
+  if (patch.sector !== undefined || patch.country !== undefined) {
+    const clean = (v: unknown): string | null => {
+      const s = String(v ?? '').trim().replace(/\s+/g, ' ');
+      assert(s.length <= 60, 'Sectorul și țara pot avea cel mult 60 de caractere.');
+      return s || null;
+    };
+    next.sector = patch.sector !== undefined ? clean(patch.sector) : current.sector;
+    next.country = patch.country !== undefined ? clean(patch.country) : current.country;
+    next.profileSource = next.sector || next.country ? 'manual' : null;
+  }
 
   db.prepare(
     `UPDATE assets SET name = ?, face_value = ?, coupon_rate = ?, coupon_frequency = ?, maturity_date = ?,
-       price_mode = ?, manual_price = ?, manual_price_date = ?
+       price_mode = ?, manual_price = ?, manual_price_date = ?, sector = ?, country = ?, profile_source = ?,
+       profile_fetched_at = CASE WHEN ? IS NULL THEN NULL ELSE profile_fetched_at END
      WHERE id = ? AND user_id = ?`
   ).run(
     next.name,
@@ -176,6 +188,10 @@ export function updateAsset(db: Db, userId: number, id: number, patch: AssetUpda
     next.priceMode,
     next.manualPrice,
     next.manualPriceDate,
+    next.sector,
+    next.country,
+    next.profileSource,
+    next.profileSource,
     id,
     userId
   );

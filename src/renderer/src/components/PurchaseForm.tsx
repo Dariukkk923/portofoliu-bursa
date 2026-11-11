@@ -1,7 +1,7 @@
 /**
  * Formularul „Adaugă activ”: alege tipul și simbolul (cu căutare la provider),
  * completează achiziția, iar aplicația creează activul (dacă e nou) și o
- * tranzacție de tip Cumpărare.
+ * tranzacție de tip Cumpărare. Din watchlist, instrumentul vine deja completat.
  */
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Search } from 'lucide-react';
@@ -13,6 +13,17 @@ import { api, errorMessage } from '../api';
 import { useApp } from '../context/AppContext';
 import { money } from '../lib/format';
 import { Badge, Button, Field, Input, Modal, Notice, Segmented, Select, Spinner, Textarea } from './ui';
+import { PortfolioField } from './portfolio';
+import { JournalSection, draftError, draftIsEmpty, draftToInput, emptyDraft, type JournalDraft } from './journal';
+import { TickerLogo } from './TickerLogo';
+
+/** Instrumentul ales dinainte (ex.: din watchlist). */
+export interface PurchasePreset {
+  type: AssetType;
+  symbol: string;
+  name?: string;
+  currency: string;
+}
 
 const SYMBOL_HINT: Record<AssetType, string> = {
   stock: 'Ex.: AAPL, MSFT; pentru BVB adaugă sufixul .RO (TLV.RO, SNP.RO).',
@@ -28,13 +39,27 @@ const COUPON_FREQUENCIES = [
   { value: 12, label: 'Lunar' }
 ];
 
-export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; onClose: () => void; onSaved: () => void }) {
-  const { brokers, reloadBrokers, notify, settings } = useApp();
+export function PurchaseForm({
+  assets,
+  onClose,
+  onSaved,
+  preset,
+  extraOption
+}: {
+  assets: Asset[];
+  onClose: () => void;
+  onSaved: () => void;
+  preset?: PurchasePreset;
+  /** O bifă în plus, sub formular (ex.: „Scoate din listă după cumpărare”). */
+  extraOption?: { label: string; checked: boolean; onChange: (checked: boolean) => void };
+}) {
+  const { brokers, reloadBrokers, notify, settings, defaultPortfolioId } = useApp();
+  const [portfolioId, setPortfolioId] = useState<number | null>(defaultPortfolioId);
 
-  const [type, setType] = useState<AssetType>('stock');
-  const [symbol, setSymbol] = useState('');
-  const [name, setName] = useState('');
-  const [currency, setCurrency] = useState(settings?.baseCurrency ?? 'RON');
+  const [type, setType] = useState<AssetType>(preset?.type ?? 'stock');
+  const [symbol, setSymbol] = useState(preset?.symbol ?? '');
+  const [name, setName] = useState(preset?.name ?? '');
+  const [currency, setCurrency] = useState(preset?.currency ?? settings?.baseCurrency ?? 'RON');
   const [brokerId, setBrokerId] = useState<number | ''>(brokers[0]?.id ?? '');
   const [newBroker, setNewBroker] = useState('');
   const [date, setDate] = useState(todayIso());
@@ -42,6 +67,7 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
   const [price, setPrice] = useState('');
   const [fee, setFee] = useState('');
   const [notes, setNotes] = useState('');
+  const [journal, setJournal] = useState<JournalDraft>(emptyDraft);
   // obligațiuni
   const [faceValue, setFaceValue] = useState('100');
   const [couponRate, setCouponRate] = useState('');
@@ -100,6 +126,12 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
       .catch(() => undefined);
   };
 
+  // Instrumentul venit din watchlist: aflăm direct prețul curent.
+  useEffect(() => {
+    if (preset) lookup(preset.symbol, preset.type);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const pick = (r: SymbolSearchResult): void => {
     setSymbol(r.symbol);
     setName(r.name);
@@ -122,6 +154,8 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
       setError('Completează numărul de unități și prețul de cumpărare.');
       return;
     }
+    const journalInvalid = draftError(journal);
+    if (journalInvalid) return setError(journalInvalid);
     setSaving(true);
     try {
       // Broker nou, creat direct din formular.
@@ -131,7 +165,8 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
         broker = (await api.brokers.create({ name: newBroker })).id;
         await reloadBrokers();
       }
-      await api.portfolio.addPurchase({
+      const tx = await api.portfolio.addPurchase({
+        portfolioId,
         asset: {
           type,
           symbol,
@@ -154,6 +189,12 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
         fee: feeValue,
         notes
       });
+      // Nota din jurnal (opțională) se leagă de tranzacția de cumpărare.
+      if (!draftIsEmpty(journal)) {
+        await api.journal.create({ ...draftToInput(journal), transactionId: tx.id }).catch((err) =>
+          notify('error', `Achiziția a fost salvată, dar nota din jurnal nu: ${errorMessage(err)}`)
+        );
+      }
       notify('success', `Achiziția ${symbol.trim().toUpperCase()} a fost adăugată și înregistrată ca tranzacție de cumpărare.`);
       onSaved();
     } catch (err) {
@@ -171,7 +212,7 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
       footer={
         <>
           {total !== null && (
-            <span className="mr-auto text-[13px] text-ink-2">
+            <span className="mr-auto text-body text-ink-2">
               Cost total: <strong className="tabular text-ink">{money(total, currency)}</strong>
             </span>
           )}
@@ -184,7 +225,7 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
     >
       <form id="purchase-form" onSubmit={submit} className="space-y-4">
         <div>
-          <span className="mb-1 block text-[13px] font-medium text-ink-2">Tip de activ</span>
+          <span className="mb-1 block text-body font-medium text-ink-2">Tip de activ</span>
           <Segmented
             value={type}
             onChange={(t) => {
@@ -211,7 +252,7 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
                 onFocus={() => setShowResults(true)}
                 placeholder={type === 'crypto' ? 'BTC-USD' : type === 'bond' ? 'R2710A' : 'Caută după nume sau simbol'}
                 required
-                autoFocus
+                autoFocus={!preset}
                 autoComplete="off"
                 role="combobox"
                 aria-expanded={showResults && results.length > 0}
@@ -220,15 +261,16 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
               {showResults && (searching || results.length > 0) && (
                 <ul id="symbol-results" role="listbox" className="absolute z-10 mt-1 max-h-64 w-[150%] overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-xl">
                   {searching && results.length === 0 && (
-                    <li className="flex items-center gap-2 px-3 py-2 text-[13px] text-ink-3">
+                    <li className="flex items-center gap-2 px-3 py-2 text-body text-ink-3">
                       <Spinner className="size-4" /> Se caută…
                     </li>
                   )}
                   {results.map((r) => (
                     <li key={`${r.symbol}-${r.exchange}`} role="option" aria-selected={false}>
                       <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(r)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2">
-                        <span className="w-24 shrink-0 text-[13px] font-semibold text-ink">{r.symbol}</span>
-                        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{r.name}</span>
+                        <TickerLogo symbol={r.symbol} type={r.type ?? type} size={22} />
+                        <span className="w-24 shrink-0 text-body font-semibold text-ink">{r.symbol}</span>
+                        <span className="min-w-0 flex-1 truncate text-body text-ink-2">{r.name}</span>
                         {r.exchange && <span className="shrink-0 text-xs text-ink-3">{r.exchange}</span>}
                         {r.type && <Badge>{ASSET_TYPE_LABEL[r.type]}</Badge>}
                       </button>
@@ -304,6 +346,7 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
           <Field label="Data achiziției">
             <Input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} required />
           </Field>
+          <PortfolioField value={portfolioId} onChange={setPortfolioId} />
           <Field label="Broker">
             <Select value={brokerId} onChange={(e) => setBrokerId(e.target.value ? Number(e.target.value) : '')}>
               {brokers.map((b) => (
@@ -327,6 +370,15 @@ export function PurchaseForm({ assets, onClose, onSaved }: { assets: Asset[]; on
         <Field label="Note (opțional)">
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} />
         </Field>
+
+        <JournalSection title="Notează în jurnal de ce cumperi" draft={journal} onChange={setJournal} currency={currency} />
+
+        {extraOption && (
+          <label className="flex items-center gap-2 text-body text-ink">
+            <input type="checkbox" className="size-4 accent-accent" checked={extraOption.checked} onChange={(e) => extraOption.onChange(e.target.checked)} />
+            {extraOption.label}
+          </label>
+        )}
 
         {error && <Notice tone="loss">{error}</Notice>}
       </form>

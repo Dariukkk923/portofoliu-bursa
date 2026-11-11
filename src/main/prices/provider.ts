@@ -34,9 +34,39 @@ export interface HistoryResult {
   splitAdjusted: boolean;
 }
 
+export interface AssetProfile {
+  sector: string | null;
+  country: string | null;
+}
+
+/** Un dividend: data ex-dividend, data plății (dacă se știe) și suma pe acțiune, în moneda cotației. */
+export interface ProviderDividend {
+  exDate: string;
+  payDate: string | null;
+  amount: number;
+  currency: string | null;
+  /** Data este anunțată, dar suma nu (s-a folosit suma dividendului anterior). */
+  amountEstimated?: boolean;
+}
+
+/** O imagine descărcată (logo). */
+export interface LogoImage {
+  data: Uint8Array;
+  mime: string;
+}
+
 export interface PriceProvider {
   readonly id: ProviderId;
   getQuote(ref: SymbolRef): Promise<Quote>;
+  /** Opțional: logo-ul companiei (null = providerul nu are logo pentru simbol). */
+  getLogo?(ref: SymbolRef): Promise<LogoImage | null>;
+  /** Opțional: sectorul (categoria, la ETF-uri) și țara companiei, în engleză, cum le dă providerul. */
+  getProfile?(ref: SymbolRef): Promise<AssetProfile | null>;
+  /**
+   * Opțional: dividendele cu data ex-dividend de la `from` încoace (inclusiv cele anunțate).
+   * Null = providerul nu acoperă simbolul; listă goală = simbolul nu plătește dividende.
+   */
+  getDividends?(ref: SymbolRef, from: string): Promise<ProviderDividend[] | null>;
   /** Opțional: mai multe cotații într-o singură cerere. Simbolurile negăsite lipsesc din rezultat. */
   getQuotes?(refs: SymbolRef[]): Promise<Map<string, Quote>>;
   getHistory(ref: SymbolRef, from: string, to: string): Promise<HistoryResult>;
@@ -86,6 +116,27 @@ export async function fetchJson(url: string, timeoutMs = 15_000): Promise<unknow
   } catch {
     throw new ProviderError('other', 'Răspuns invalid de la provider.');
   }
+}
+
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml'];
+const MAX_IMAGE_BYTES = 256 * 1024;
+
+/** Descarcă o imagine mică (logo): doar formatele de imagine obișnuite, cel mult 256 KB. Null dacă nu este o imagine. */
+export async function fetchImage(url: string, timeoutMs = 15_000): Promise<LogoImage | null> {
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: IMAGE_TYPES.join(', ') } });
+  } catch (err) {
+    throw new ProviderError('network', `Conexiune eșuată: ${(err as Error).message}`);
+  }
+  if (res.status === 401 || res.status === 403) throw new ProviderError('auth', 'Cheia API a fost respinsă.');
+  if (res.status === 429) throw new ProviderError('ratelimit', 'Limita de cereri a fost depășită.');
+  if (!res.ok) return null;
+  const mime = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+  if (!IMAGE_TYPES.includes(mime)) return null;
+  const data = new Uint8Array(await res.arrayBuffer());
+  if (data.length === 0 || data.length > MAX_IMAGE_BYTES) return null;
+  return { data, mime };
 }
 
 /**

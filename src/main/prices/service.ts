@@ -18,21 +18,35 @@ import {
 } from '@shared/types';
 import { addDays, todayIso } from '@shared/dates';
 import { Ledger, sortTransactions } from '@shared/calc';
+import { BENCHMARKS } from '@shared/benchmarks';
 import type { Db } from '../db/database';
 import type { SecretBox } from '../secrets';
 import { rowToLedgerTx } from '../services/common';
 import { listAssets } from '../services/assets';
+import { saveDividendEvents } from '../services/dividends';
 import { getApiKey, getSettings, setLastPriceUpdate } from '../services/settings';
 import { AlphaVantageProvider } from './alphavantage';
 import { PolygonProvider } from './polygon';
 import { TwelveDataProvider } from './twelvedata';
 import { YahooProvider } from './yahoo';
 import { isNetworkError, type PriceProvider, type Quote, type SymbolRef } from './provider';
-import { fxSymbol, getCachedPrices, getHistorySync, saveHistory, saveQuote, setHistorySync } from './store';
+import { fxSymbol, getCachedPrices, getHistorySync, getLogos, saveHistory, saveLogo, saveQuote, setHistorySync } from './store';
 
 /** Istoricul unui simbol se reîmprospătează cel mult o dată la atâtea ore (sau la 15 minute, la cerere). */
 const HISTORY_TTL_MS = 12 * 3_600_000;
 const HISTORY_TTL_FORCED_MS = 15 * 60_000;
+/** Câte zile de istoric se păstrează pentru graficul mic din watchlist. */
+const WATCHLIST_HISTORY_DAYS = 100;
+/** Logo-urile: câte se descarcă la o rulare (limitele planurilor gratuite) și când se reîncearcă. */
+const LOGOS_PER_RUN = 25;
+const LOGO_TTL_MS = 180 * 86_400_000;
+const NO_LOGO_RETRY_MS = 30 * 86_400_000;
+/** Profilul (sector, țară) se reîmprospătează rar: o dată la 90 de zile, câte cel mult 20 de active pe rulare. */
+const PROFILE_TTL_MS = 90 * 86_400_000;
+const PROFILES_PER_RUN = 20;
+/** Dividendele se verifică o dată la 3 zile pe simbol, câte cel mult 15 simboluri pe rulare. */
+const DIVIDEND_TTL_MS = 3 * 86_400_000;
+const DIVIDENDS_PER_RUN = 15;
 
 export interface PriceServiceOptions {
   db: Db;
@@ -158,7 +172,24 @@ export class PriceService {
       if (p.quantity > 0) held.add(p.assetId);
     }
     const firstTxDate = new Map<number, string>();
-    for (const t of txs) if (!firstTxDate.has(t.assetId)) firstTxDate.set(t.assetId, t.date);
+    for (const t of txs) if (t.assetId != null && !firstTxDate.has(t.assetId)) firstTxDate.set(t.assetId, t.date);
+    // Monedele sumelor de cash (depuneri, sume raportate de broker) au nevoie și ele de curs, de la prima apariție.
+    const firstCashDate = new Map<string, string>();
+    for (const t of txs) {
+      for (const c of [t.assetId == null ? t.currency : null, t.cashCurrency]) {
+        if (c && !firstCashDate.has(c)) firstCashDate.set(c, t.date);
+      }
+    }
+    // Cursurile se cer față de moneda de bază din setări, față de moneda fiecărui portofoliu activ și
+    // față de leu (raportul fiscal convertește în lei când cursul BNR nu poate fi descărcat).
+    const bases = new Set([settings.baseCurrency, 'RON']);
+    for (const r of this.db.prepare('SELECT DISTINCT base_currency FROM portfolios WHERE user_id = ? AND archived = 0').all(userId) as {
+      base_currency: string;
+    }[]) {
+      bases.add(r.base_currency);
+    }
+    const fxRefs = (currency: string): SymbolRef[] =>
+      [...bases].filter((b) => b !== currency).map((b) => ({ symbol: fxSymbol(currency, b), type: 'fx' as const }));
 
     const quoteRefs: SymbolRef[] = [];
     const historyNeeds = new Map<string, { ref: SymbolRef; from: string }>();
@@ -174,8 +205,44 @@ export class PriceService {
         if (held.has(asset.id)) quoteRefs.push(ref);
         needHistory(ref, first);
       }
-      if (asset.currency !== settings.baseCurrency) {
-        const ref: SymbolRef = { symbol: fxSymbol(asset.currency, settings.baseCurrency), type: 'fx' };
+      for (const ref of fxRefs(asset.currency)) {
+        if (!quoteRefs.some((r) => r.symbol === ref.symbol)) quoteRefs.push(ref);
+        needHistory(ref, first);
+      }
+    }
+
+    // Instrumentele din watchlist: cotația și istoricul recent (pentru variația de azi și graficul mic).
+    const watchFrom = addDays(todayIso(), -WATCHLIST_HISTORY_DAYS);
+    for (const w of this.db.prepare("SELECT DISTINCT symbol, type FROM watchlist_items WHERE user_id = ? AND type <> 'bond'").all(userId) as {
+      symbol: string;
+      type: AssetType;
+    }[]) {
+      const asset = assets.find((a) => a.symbol === w.symbol);
+      if (asset?.priceMode === 'manual') continue;
+      const ref: SymbolRef = { symbol: w.symbol, type: w.type };
+      if (!quoteRefs.some((r) => r.symbol === ref.symbol)) quoteRefs.push(ref);
+      needHistory(ref, watchFrom);
+    }
+
+    // Indicii de referință (din setări și ai portofoliilor): doar istoricul zilnic, de la prima tranzacție, și cursul
+    // monedei lor. Nu sunt active, deci nu primesc cotație și nu apar niciodată la „preț negăsit”.
+    const firstAny = txs[0]?.date;
+    if (firstAny) {
+      const symbols = new Set([settings.benchmark]);
+      for (const r of this.db.prepare('SELECT DISTINCT benchmark FROM portfolios WHERE user_id = ? AND archived = 0 AND benchmark IS NOT NULL').all(userId) as {
+        benchmark: string;
+      }[]) {
+        symbols.add(r.benchmark);
+      }
+      for (const symbol of symbols) {
+        needHistory({ symbol, type: 'etf' }, firstAny);
+        const currency = BENCHMARKS.find((b) => b.symbol === symbol)?.currency;
+        for (const fx of currency ? fxRefs(currency) : []) needHistory(fx, firstAny);
+      }
+    }
+
+    for (const [currency, first] of firstCashDate) {
+      for (const ref of fxRefs(currency)) {
         if (!quoteRefs.some((r) => r.symbol === ref.symbol)) quoteRefs.push(ref);
         needHistory(ref, first);
       }
@@ -259,6 +326,8 @@ export class PriceService {
     if (!offline) {
       await this.syncHistory(userId, chain, [...historyNeeds.values()], force);
       if (pending.length === 0) s.lastError = null;
+      await this.fetchProfiles(userId, chain, assets.filter((a) => held.has(a.id)));
+      await this.fetchDividends(userId, chain, assets.filter((a) => held.has(a.id)), firstTxDate);
     }
 
     let lastPriceUpdate = settings.lastPriceUpdate;
@@ -313,6 +382,214 @@ export class PriceService {
         }
       }
     }
+  }
+
+  /** Sectorul și țara activelor deținute (acțiuni și ETF-uri), de la providerii care le știu; cele completate manual rămân. */
+  private async fetchProfiles(userId: number, chain: PriceProvider[], held: { id: number; symbol: string; type: AssetType }[]): Promise<void> {
+    const providers = chain.filter((p) => p.getProfile);
+    if (providers.length === 0) return;
+    const rows = new Map(
+      (this.db.prepare('SELECT id, profile_source, profile_fetched_at FROM assets WHERE user_id = ?').all(userId) as {
+        id: number;
+        profile_source: string | null;
+        profile_fetched_at: string | null;
+      }[]).map((r) => [r.id, r])
+    );
+    const now = Date.now();
+    const due = held
+      .filter((a) => a.type === 'stock' || a.type === 'etf')
+      .filter((a) => {
+        const r = rows.get(a.id);
+        if (!r || r.profile_source === 'manual') return false;
+        return !r.profile_fetched_at || now - Date.parse(r.profile_fetched_at) >= PROFILE_TTL_MS;
+      })
+      .slice(0, PROFILES_PER_RUN);
+    const save = this.db.prepare(
+      "UPDATE assets SET sector = ?, country = ?, profile_source = ?, profile_fetched_at = ? WHERE id = ? AND user_id = ? AND (profile_source IS NULL OR profile_source <> 'manual')"
+    );
+    for (const asset of due) {
+      let profile = null;
+      let answered = false;
+      for (const provider of providers) {
+        try {
+          profile = await provider.getProfile!({ symbol: asset.symbol, type: asset.type });
+          answered = true;
+          if (profile) break;
+        } catch (err) {
+          if (isNetworkError(err)) return;
+        }
+      }
+      if (profile) save.run(profile.sector, profile.country, 'api', new Date().toISOString(), asset.id, userId);
+      else if (answered) save.run(null, null, 'none', new Date().toISOString(), asset.id, userId);
+    }
+  }
+
+  /**
+   * Pregătește un instrument (care poate să nu fie deținut) pentru simulator și obiective: cotația
+   * (pentru monedă), istoricul zilnic de la data dată, cursul monedei lui față de monedele date și,
+   * la cerere, dividendele. Totul se salvează în cache. Fără internet se folosește ce există.
+   */
+  async prepareInstrument(
+    userId: number,
+    ref: SymbolRef,
+    from: string,
+    bases: string[],
+    withDividends: boolean
+  ): Promise<{ currency: string | null; offline: boolean }> {
+    const chain = this.providerChain(userId);
+    const symbol = ref.symbol.toUpperCase();
+    const cached = getCachedPrices(this.db, userId).get(symbol);
+    let currency = cached?.currency ?? null;
+    let offline = false;
+    if (!cached || Date.now() - Date.parse(cached.fetchedAt) > HISTORY_TTL_MS) {
+      for (const provider of chain) {
+        try {
+          const q = await provider.getQuote({ ...ref, symbol });
+          saveQuote(this.db, userId, { symbol, price: q.price, currency: q.currency, asOf: q.asOf, provider: provider.id });
+          currency = q.currency ?? currency;
+          break;
+        } catch (err) {
+          if (isNetworkError(err)) {
+            offline = true;
+            break;
+          }
+        }
+      }
+    }
+    if (offline) return { currency, offline };
+    const needs: { ref: SymbolRef; from: string }[] = [{ ref: { ...ref, symbol }, from }];
+    for (const b of bases) if (currency && b !== currency) needs.push({ ref: { symbol: fxSymbol(currency, b), type: 'fx' }, from });
+    await this.syncHistory(userId, chain, needs, false);
+    // Cursul de azi, pentru conversie (dacă nu există deja în cache).
+    const prices = getCachedPrices(this.db, userId);
+    for (const n of needs.slice(1)) {
+      if (prices.has(n.ref.symbol)) continue;
+      for (const provider of chain) {
+        try {
+          const q = await provider.getQuote(n.ref);
+          saveQuote(this.db, userId, { symbol: n.ref.symbol, price: q.price, currency: q.currency, asOf: q.asOf, provider: provider.id });
+          break;
+        } catch (err) {
+          if (isNetworkError(err)) break;
+        }
+      }
+    }
+    if (withDividends && (ref.type === 'stock' || ref.type === 'etf')) {
+      const sync = this.db.prepare('SELECT fetched_at FROM dividend_sync WHERE user_id = ? AND symbol = ?').get(userId, symbol) as { fetched_at: string } | undefined;
+      if (!sync || Date.now() - Date.parse(sync.fetched_at) >= DIVIDEND_TTL_MS) {
+        for (const provider of chain.filter((p) => p.getDividends)) {
+          try {
+            const list = await provider.getDividends!({ ...ref, symbol }, from);
+            if (list === null) continue;
+            if (list.length === 0) continue;
+            saveDividendEvents(this.db, userId, symbol, list, provider.id);
+            break;
+          } catch (err) {
+            if (isNetworkError(err)) break;
+          }
+        }
+      }
+    }
+    return { currency, offline };
+  }
+
+  /**
+   * Dividendele activelor deținute (acțiuni și ETF-uri), de la providerii care le oferă: primul
+   * provider din lanț care are date pentru simbol. Cele introduse manual rămân neatinse.
+   */
+  private async fetchDividends(
+    userId: number,
+    chain: PriceProvider[],
+    held: { id: number; symbol: string; type: AssetType }[],
+    firstTxDate: Map<number, string>
+  ): Promise<void> {
+    const providers = chain.filter((p) => p.getDividends);
+    if (providers.length === 0) return;
+    const synced = new Map(
+      (this.db.prepare('SELECT symbol, fetched_at FROM dividend_sync WHERE user_id = ?').all(userId) as { symbol: string; fetched_at: string }[]).map((r) => [
+        r.symbol,
+        r.fetched_at
+      ])
+    );
+    const now = Date.now();
+    const today = todayIso();
+    const due = held
+      .filter((a) => a.type === 'stock' || a.type === 'etf')
+      .filter((a) => {
+        const at = synced.get(a.symbol);
+        return !at || now - Date.parse(at) >= DIVIDEND_TTL_MS;
+      })
+      .slice(0, DIVIDENDS_PER_RUN);
+    for (const asset of due) {
+      // Istoricul: de la prima tranzacție (cel puțin 2 ani, pentru frecvență), dar nu mai vechi de 5 ani.
+      const first = firstTxDate.get(asset.id) ?? today;
+      const twoYears = addDays(today, -730);
+      const from = [first < twoYears ? first : twoYears, addDays(today, -1826)].sort()[1];
+      let saved = false;
+      let answered = false;
+      for (const provider of providers) {
+        try {
+          const list = await provider.getDividends!({ symbol: asset.symbol, type: asset.type }, from);
+          if (list === null) continue;
+          answered = true;
+          if (list.length === 0) continue;
+          saveDividendEvents(this.db, userId, asset.symbol, list, provider.id);
+          saved = true;
+          break;
+        } catch (err) {
+          if (isNetworkError(err)) return;
+        }
+      }
+      // Niciun provider nu are dividende pentru simbol: se notează, ca să nu se întrebe la fiecare actualizare.
+      if (!saved && answered) saveDividendEvents(this.db, userId, asset.symbol, [], null);
+    }
+  }
+
+  /**
+   * Simbolurile al căror logo lipsește din cache sau trebuie reîmprospătat. Crypto și obligațiunile
+   * nu se cer (crypto are iconițe incluse în aplicație), iar fără un provider care dă logo-uri nu se cere nimic.
+   */
+  logosToFetch(userId: number, refs: SymbolRef[]): SymbolRef[] {
+    if (!this.providerChain(userId).some((p) => p.getLogo)) return [];
+    const cached = getLogos(this.db, userId, refs.map((r) => r.symbol));
+    const now = Date.now();
+    return refs.filter((r) => {
+      if (r.type === 'crypto' || r.type === 'bond' || r.type === 'fx') return false;
+      const c = cached.get(r.symbol);
+      return !c || now - Date.parse(c.fetchedAt) >= (c.dataUrl ? LOGO_TTL_MS : NO_LOGO_RETRY_MS);
+    });
+  }
+
+  /**
+   * Descarcă logo-urile cerute de la providerii configurați care le oferă (Twelve Data, Polygon) și le
+   * salvează local. Întoarce simbolurile pentru care s-a găsit un logo nou. Fără internet se oprește și
+   * reîncearcă la următoarea cerere.
+   */
+  async fetchLogos(userId: number, refs: SymbolRef[]): Promise<string[]> {
+    const chain = this.providerChain(userId).filter((p) => p.getLogo);
+    const found: string[] = [];
+    if (chain.length === 0) return found;
+    for (const ref of refs.slice(0, LOGOS_PER_RUN)) {
+      let answered = false;
+      let saved = false;
+      for (const provider of chain) {
+        try {
+          const image = await provider.getLogo!(ref);
+          answered = true;
+          if (image) {
+            saveLogo(this.db, userId, ref.symbol, image, provider.id);
+            found.push(ref.symbol);
+            saved = true;
+            break;
+          }
+        } catch (err) {
+          if (isNetworkError(err)) return found;
+          // cheie respinsă sau limită depășită: încercăm următorul provider
+        }
+      }
+      if (!saved && answered) saveLogo(this.db, userId, ref.symbol, null, 'none');
+    }
+    return found;
   }
 
   /** Caută simboluri după nume sau ticker, la primul provider care răspunde. */

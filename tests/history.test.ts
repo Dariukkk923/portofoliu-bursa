@@ -44,9 +44,10 @@ describe('evoluția valorii portofoliului', () => {
     expect(series[1].invested).toBeCloseTo(900, 8);
     expect(series[2].value).toBeCloseTo(990, 8);
     expect(series[3].value).toBeCloseTo(1104, 8); // după split: 20 buc. * 12 USD * 4.6
-    expect(series[3].invested).toBeCloseTo(920, 8);
+    // Suma investită rămâne la cursul din ziua cumpărării (200 USD * 4.5), nu se reevaluează la cursul nou.
+    expect(series[3].invested).toBe(900);
     expect(series[4].value).toBeCloseTo(1437.5, 8); // 25 buc. * 12.5 USD * 4.6
-    expect(series[4].invested).toBeCloseTo(1196, 8);
+    expect(series[4].invested).toBe(1176); // 900 + 5 * 12 USD * 4.6
   });
 
   it('nu ajustează cantitatea când prețurile istorice sunt cele reale de la acea dată', () => {

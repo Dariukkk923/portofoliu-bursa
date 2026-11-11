@@ -1,6 +1,6 @@
-/** Pagina Portofoliu: pozițiile deschise (agregat sau pe broker), adăugare de active, vânzare, editare. */
-import { useState } from 'react';
-import { ArrowLeftRight, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
+/** Pagina Portofoliu: pozițiile deschise (agregat sau pe broker), adăugare de active, vânzare, editare, mutare între portofolii. */
+import { Fragment, useState } from 'react';
+import { ArrowLeftRight, FolderInput, NotebookPen, Pencil, Plus, Trash2, TrendingDown, Wallet } from 'lucide-react';
 import type { Asset, PositionView, TransactionType } from '@shared/types';
 import { ASSET_TYPE_LABEL } from '@shared/labels';
 import { api, errorMessage } from '../api';
@@ -10,7 +10,10 @@ import { AssetForm } from '../components/AssetForm';
 import { PurchaseForm } from '../components/PurchaseForm';
 import { TransactionForm } from '../components/TransactionForm';
 import { ImportButton } from '../components/ImportButton';
-import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Notice, Pnl, Segmented, Spinner, TD, TH, cx } from '../components/ui';
+import { MoveDialog, PortfolioTag } from '../components/portfolio';
+import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, LoadError, Modal, Notice, PageSkeleton, Pnl, Segmented, TD, TH, cx } from '../components/ui';
+import { TickerLogo } from '../components/TickerLogo';
+import { JournalEntryForm } from '../components/journal';
 
 type View = 'aggregated' | 'byBroker';
 
@@ -24,14 +27,74 @@ function PriceSource({ p }: { p: PositionView }) {
   return null;
 }
 
+/** Profitul nerealizat în moneda de bază, cu împărțirea pe preț și curs valutar când moneda diferă. */
+function PnlCell({ p, base }: { p: PositionView; base: string }) {
+  const showFx = p.currency !== base && Math.abs(p.fxPnlBase) >= 0.005;
+  return (
+    <>
+      <div>
+        <Pnl value={p.unrealizedBase} className="font-medium">
+          {signedMoney(p.unrealizedBase, base)}
+        </Pnl>
+      </div>
+      <Pnl value={p.unrealizedBasePct} arrow className="text-xs">
+        {signedPercent(p.unrealizedBasePct)}
+      </Pnl>
+      {showFx && (
+        <div className="text-2xs text-ink-3" title="Profitul din evoluția prețului și cel din schimbarea cursului valutar de la cumpărare până azi">
+          <div>preț {signedMoney(p.pricePnlBase, base)}</div>
+          <div>curs {signedMoney(p.fxPnlBase, base)}</div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Rândul de sub o poziție pe minus: cât pierde, prețul de break-even și cât trebuie să crească prețul. */
+function LossDetails({ p, base }: { p: PositionView; base: string }) {
+  const bePrice = p.breakEvenPrice === null ? '—' : showPrice(p, p.breakEvenPrice);
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-loss-soft px-3 py-1.5 text-xs text-ink">
+      <span className="inline-flex items-center gap-1 font-semibold text-loss">
+        <TrendingDown className="size-3.5" aria-hidden />
+        Pe minus cu {money(Math.abs(p.unrealizedBase), base)} ({signedPercent(p.unrealizedBasePct)})
+      </span>
+      <span title="Prețul la care poziția iese pe zero, cu tot cu comisioanele plătite">
+        Break-even: <strong className="tabular">{bePrice}{p.assetType === 'bond' ? '' : ` ${p.currency}`}</strong>
+        {p.currency !== base && <span className="text-ink-3"> (la cursul de azi)</span>}
+      </span>
+      {p.recoveryPct !== null && (
+        <span>
+          Ca să recuperezi, prețul trebuie să crească cu <strong className="tabular">{signedPercent(p.recoveryPct)}</strong>
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function PositionsPage() {
-  const { filter, dataVersion, bumpData, notify } = useApp();
+  const { filter, dataVersion, bumpData, notify, activePortfolios, scope } = useApp();
   const [view, setView] = useState<View>('aggregated');
   const [purchase, setPurchase] = useState(false);
-  const [txPreset, setTxPreset] = useState<{ type: TransactionType; assetId: number; brokerId?: number | null } | null>(null);
+  const [journalFor, setJournalFor] = useState<{ assetId: number; portfolioId: number | null } | null>(null);
+  const [txPreset, setTxPreset] = useState<{ type: TransactionType; assetId: number; brokerId?: number | null; portfolioId?: number | null } | null>(null);
+  const [moving, setMoving] = useState<{ ids: number[]; position: PositionView } | null>(null);
+  /** În vederea combinată, fiecare linie pe broker arată și portofoliul. */
+  const showPortfolio = scope === 'all' && activePortfolios.length > 1;
+
+  const startMove = async (p: PositionView): Promise<void> => {
+    if (p.portfolioId == null || p.brokerId == null) return;
+    try {
+      setMoving({ ids: await api.transactions.positionIds(p.portfolioId, p.assetId, p.brokerId), position: p });
+    } catch (err) {
+      notify('error', errorMessage(err));
+    }
+  };
   const [editing, setEditing] = useState<Asset | null>(null);
   const [deleting, setDeleting] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Pe telefon: poziția atinsă, cu detaliile și acțiunile ei. */
+  const [actionsFor, setActionsFor] = useState<PositionView | null>(null);
 
   const overview = useLoad(() => api.portfolio.overview(filter), [filter, dataVersion]);
   const assets = useLoad(() => api.assets.list(), [dataVersion]);
@@ -62,7 +125,7 @@ export function PositionsPage() {
   };
 
   if (!o) {
-    return overview.error ? <Notice tone="loss">{overview.error}</Notice> : <div className="flex justify-center py-20"><Spinner className="size-7" /></div>;
+    return overview.error ? <LoadError message={overview.error} onRetry={overview.reload} /> : <PageSkeleton />;
   }
 
   const base = o.totals.baseCurrency;
@@ -80,7 +143,7 @@ export function PositionsPage() {
             { value: 'byBroker', label: 'Pe broker' }
           ]}
         />
-        <p className="text-[13px] text-ink-2">
+        <p className="text-body text-ink-2">
           {rows.length} {rows.length === 1 ? 'poziție' : 'poziții'} · valoare <strong className="tabular text-ink">{money(o.totals.totalValue, base)}</strong> · nerealizat{' '}
           <Pnl value={o.totals.unrealized} className="font-semibold">
             {signedMoney(o.totals.unrealized, base)}
@@ -116,7 +179,31 @@ export function PositionsPage() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Pe telefon: un rând pe poziție (logo, nume, valoare, profit); atingerea deschide acțiunile. */}
+          <ul className="divide-y divide-line md:hidden">
+            {rows.map((p) => (
+              <li key={p.key}>
+                <button type="button" onClick={() => setActionsFor(p)} className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left">
+                  <TickerLogo symbol={p.symbol} type={p.assetType} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-body font-semibold text-ink">
+                      {p.symbol}
+                      {byBroker && <span className="font-normal text-ink-3"> · {p.brokerName}</span>}
+                    </p>
+                    <p className="truncate text-xs text-ink-3">{p.name || ASSET_TYPE_LABEL[p.assetType]}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-body font-semibold text-ink">{money(p.marketValueBase, base)}</p>
+                    <Pnl value={p.unrealizedBase} className="text-xs font-medium">
+                      {signedMoney(p.unrealizedBase, base)} ({signedPercent(p.unrealizedBasePct)})
+                    </Pnl>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-line">
@@ -126,25 +213,41 @@ export function PositionsPage() {
                   <th className={cx(TH, 'text-right')}>Preț mediu</th>
                   <th className={cx(TH, 'text-right')}>Preț curent</th>
                   <th className={cx(TH, 'text-right')}>Valoare de piață</th>
-                  <th className={cx(TH, 'text-right')}>Profit / pierdere</th>
-                  <th className={cx(TH, 'text-right')}>Realizat</th>
+                  <th className={cx(TH, 'text-right')} title={`Profit nerealizat în ${base}: din preț și din cursul valutar`}>Profit / pierdere</th>
+                  <th className={cx(TH, 'text-right')} title={`Profit din vânzări + dividende și cupoane, în ${base}`}>Realizat</th>
                   <th className={TH} aria-label="Acțiuni" />
                 </tr>
               </thead>
               <tbody>
                 {rows.map((p) => {
                   const asset = assetOf(p.assetId);
-                  const realized = p.realizedPnl + p.income;
+                  const realized = p.realizedBase + p.incomeBase;
+                  const losing = p.unrealizedBase <= -0.005;
                   return (
-                    <tr key={p.key} className="border-b border-line last:border-0 hover:bg-surface-2/60">
+                    <Fragment key={p.key}>
+                    <tr className={cx('border-line hover:bg-surface-2/60', losing ? '' : 'border-b last:border-0')}>
                       <td className={TD}>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{p.symbol}</span>
-                          <Badge>{ASSET_TYPE_LABEL[p.assetType]}</Badge>
+                        <div className="flex items-center gap-2.5">
+                          <TickerLogo symbol={p.symbol} type={p.assetType} size={30} />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold">{p.symbol}</span>
+                              <Badge>{ASSET_TYPE_LABEL[p.assetType]}</Badge>
+                            </div>
+                            <div className="max-w-48 truncate text-xs text-ink-3" title={p.name}>{p.name || '—'}</div>
+                          </div>
                         </div>
-                        <div className="max-w-48 truncate text-xs text-ink-3" title={p.name}>{p.name || '—'}</div>
                       </td>
-                      {byBroker && <td className={TD}>{p.brokerName}</td>}
+                      {byBroker && (
+                        <td className={TD}>
+                          {p.brokerName}
+                          {showPortfolio && (
+                            <div>
+                              <PortfolioTag portfolioId={p.portfolioId} />
+                            </div>
+                          )}
+                        </td>
+                      )}
                       <td className={cx(TD, 'tabular text-right')}>{fmtQuantity(p.quantity)}</td>
                       <td className={cx(TD, 'tabular text-right')}>{showPrice(p, p.avgPrice)}</td>
                       <td className={cx(TD, 'tabular text-right')}>
@@ -158,23 +261,27 @@ export function PositionsPage() {
                         {p.currency !== base && <div className="text-xs text-ink-3">{money(p.marketValueBase, base)}</div>}
                       </td>
                       <td className={cx(TD, 'text-right')}>
-                        <div>
-                          <Pnl value={p.unrealizedPnl} className="font-medium">
-                            {signedMoney(p.unrealizedPnl, p.currency)}
-                          </Pnl>
-                        </div>
-                        <Pnl value={p.unrealizedPct} arrow className="text-xs">
-                          {signedPercent(p.unrealizedPct)}
-                        </Pnl>
+                        <PnlCell p={p} base={base} />
                       </td>
                       <td className={cx(TD, 'text-right')}>
-                        <Pnl value={realized}>{Math.abs(realized) < 0.005 ? '—' : signedMoney(realized, p.currency)}</Pnl>
+                        <Pnl value={realized}>{Math.abs(realized) < 0.005 ? '—' : signedMoney(realized, base)}</Pnl>
                       </td>
                       <td className={cx(TD, 'text-right')}>
                         <div className="flex justify-end">
-                          <IconButton label={`Vinde ${p.symbol}`} onClick={() => setTxPreset({ type: 'sell', assetId: p.assetId, brokerId: p.brokerId ?? undefined })}>
+                          <IconButton
+                            label={`Vinde ${p.symbol}`}
+                            onClick={() => setTxPreset({ type: 'sell', assetId: p.assetId, brokerId: p.brokerId ?? undefined, portfolioId: p.portfolioId })}
+                          >
                             <ArrowLeftRight className="size-4" />
                           </IconButton>
+                          <IconButton label={`Notează în jurnal despre ${p.symbol}`} onClick={() => setJournalFor({ assetId: p.assetId, portfolioId: p.portfolioId })}>
+                            <NotebookPen className="size-4" />
+                          </IconButton>
+                          {byBroker && activePortfolios.length > 1 && p.portfolioId != null && (
+                            <IconButton label={`Mută ${p.symbol} în alt portofoliu`} onClick={() => void startMove(p)}>
+                              <FolderInput className="size-4" />
+                            </IconButton>
+                          )}
                           <IconButton label={`Editează ${p.symbol} (preț manual, detalii)`} disabled={!asset} onClick={() => asset && setEditing(asset)}>
                             <Pencil className="size-4" />
                           </IconButton>
@@ -184,16 +291,96 @@ export function PositionsPage() {
                         </div>
                       </td>
                     </tr>
+                    {losing && (
+                      <tr className="border-b border-line last:border-0">
+                        <td colSpan={byBroker ? 9 : 8} className="px-3 pb-2.5">
+                          <LossDetails p={p} base={base} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 
+      {actionsFor &&
+        (() => {
+          const p = actionsFor;
+          const asset = assetOf(p.assetId);
+          const then = (fn: () => void) => (): void => {
+            setActionsFor(null);
+            fn();
+          };
+          return (
+            <Modal title={`${p.symbol}${byBroker ? ` · ${p.brokerName}` : ''}`} onClose={() => setActionsFor(null)}>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-body">
+                <div>
+                  <dt className="text-xs text-ink-3">Cantitate</dt>
+                  <dd className="font-medium text-ink">{fmtQuantity(p.quantity)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-ink-3">Valoare de piață</dt>
+                  <dd className="font-medium text-ink">{money(p.marketValue, p.currency)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-ink-3">Preț mediu</dt>
+                  <dd className="font-medium text-ink">{showPrice(p, p.avgPrice)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-ink-3">Preț curent</dt>
+                  <dd className="flex items-center gap-1.5 font-medium text-ink">
+                    {showPrice(p, p.price)} <PriceSource p={p} />
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-ink-3">Profit / pierdere</dt>
+                  <dd>
+                    <PnlCell p={p} base={base} />
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-ink-3">Realizat</dt>
+                  <dd>
+                    <Pnl value={p.realizedBase + p.incomeBase}>{Math.abs(p.realizedBase + p.incomeBase) < 0.005 ? '—' : signedMoney(p.realizedBase + p.incomeBase, base)}</Pnl>
+                  </dd>
+                </div>
+              </dl>
+              {p.unrealizedBase <= -0.005 && (
+                <div className="mt-3">
+                  <LossDetails p={p} base={base} />
+                </div>
+              )}
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <Button icon={<ArrowLeftRight className="size-4" />} onClick={then(() => setTxPreset({ type: 'sell', assetId: p.assetId, brokerId: p.brokerId ?? undefined, portfolioId: p.portfolioId }))}>
+                  Vinde
+                </Button>
+                <Button icon={<NotebookPen className="size-4" />} onClick={then(() => setJournalFor({ assetId: p.assetId, portfolioId: p.portfolioId }))}>
+                  Jurnal
+                </Button>
+                {byBroker && activePortfolios.length > 1 && p.portfolioId != null && (
+                  <Button icon={<FolderInput className="size-4" />} onClick={then(() => void startMove(p))}>
+                    Mută
+                  </Button>
+                )}
+                <Button icon={<Pencil className="size-4" />} disabled={!asset} onClick={then(() => asset && setEditing(asset))}>
+                  Editează
+                </Button>
+                <Button variant="danger" icon={<Trash2 className="size-4" />} disabled={!asset} onClick={then(() => asset && setDeleting(asset))}>
+                  Șterge
+                </Button>
+              </div>
+            </Modal>
+          );
+        })()}
+
       {o.closed.length > 0 && (
         <Card title="Poziții închise" padded={false}>
+          <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-line">
@@ -208,7 +395,10 @@ export function PositionsPage() {
               {o.closed.map((p) => (
                 <tr key={p.key} className="border-b border-line last:border-0">
                   <td className={TD}>
-                    <span className="font-semibold">{p.symbol}</span> <span className="text-ink-3">{p.name}</span>
+                    <span className="flex items-center gap-2">
+                      <TickerLogo symbol={p.symbol} type={p.assetType} size={22} />
+                      <span className="font-semibold">{p.symbol}</span> <span className="truncate text-ink-3">{p.name}</span>
+                    </span>
                   </td>
                   <td className={cx(TD, 'tabular text-right')}>{money(p.totalBought, p.currency)}</td>
                   <td className={cx(TD, 'text-right')}>
@@ -224,12 +414,37 @@ export function PositionsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
 
       {purchase && <PurchaseForm assets={assetList} onClose={() => setPurchase(false)} onSaved={afterSave} />}
+      {journalFor && (
+        <JournalEntryForm
+          entry={null}
+          preset={journalFor}
+          assets={assetList}
+          onClose={() => setJournalFor(null)}
+          onSaved={() => {
+            setJournalFor(null);
+            afterSave();
+          }}
+        />
+      )}
       {txPreset && <TransactionForm assets={assetList} initial={null} preset={txPreset} onClose={() => setTxPreset(null)} onSaved={afterSave} />}
       {editing && <AssetForm asset={editing} onClose={() => setEditing(null)} onSaved={afterSave} />}
+      {moving && (
+        <MoveDialog
+          ids={moving.ids}
+          fromPortfolioId={moving.position.portfolioId}
+          title={`Mută ${moving.position.symbol} (${moving.position.brokerName ?? ''}) în alt portofoliu`}
+          onClose={() => setMoving(null)}
+          onMoved={() => {
+            setMoving(null);
+            bumpData();
+          }}
+        />
+      )}
       {deleting && (
         <ConfirmDialog
           title={`Ștergi ${deleting.symbol}?`}

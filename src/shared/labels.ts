@@ -20,7 +20,12 @@ export const TRANSACTION_TYPE_LABEL: Record<TransactionType, string> = {
   sell: 'Vânzare',
   dividend: 'Dividend',
   coupon: 'Cupon',
-  split: 'Split'
+  split: 'Split',
+  deposit: 'Depunere',
+  withdrawal: 'Retragere',
+  fee: 'Comision',
+  interest: 'Dobândă',
+  adjustment: 'Ajustare sold'
 };
 
 export const PROVIDER_LABEL: Record<ProviderId, string> = {

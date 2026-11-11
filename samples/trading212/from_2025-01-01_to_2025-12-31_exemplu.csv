@@ -1,0 +1,9 @@
+Action,Time,ISIN,Ticker,Name,Notes,ID,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total),Withholding tax,Currency (Withholding tax),Currency conversion fee,Currency (Currency conversion fee)
+Deposit,2025-01-06 09:12:45,,,,Bank Transfer,DEP-0000001,,,,,,,2000.00,EUR,,,,
+Market buy,2025-01-07 15:31:02,US0378331005,AAPL,Apple,,EOF0000000001,4.0000000000,243.10,USD,1.03500000,,EUR,940.93,EUR,,,1.41,EUR
+Market buy,2025-01-08 09:04:11,DE0007164600,SAP,SAP,,EOF0000000002,3.0000000000,230.50,EUR,1.00000000,,EUR,691.50,EUR,,,,
+Dividend (Dividend),2025-02-13 14:00:00,US0378331005,AAPL,Apple,,,4.0000000000,0.2125,USD,1.04000000,,EUR,0.82,EUR,0.15,USD,,
+Interest on cash,2025-03-01 04:10:00,,,,,INT-0000001,,,,,,,0.75,EUR,,,,
+Market sell,2025-03-20 16:45:30,US0378331005,AAPL,Apple,,EOF0000000003,1.0000000000,250.00,USD,1.05000000,3.81,EUR,237.74,EUR,,,0.36,EUR
+Currency conversion,2025-03-21 10:00:00,,,,,,,,,,,,,,,,,
+Withdrawal,2025-04-01 08:00:00,,,,Sent to Bank Account,WDR-0000001,,,,,,,-100.00,EUR,,,,

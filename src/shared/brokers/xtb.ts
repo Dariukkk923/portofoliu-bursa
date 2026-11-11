@@ -20,7 +20,9 @@
  *   „CLOSE BUY 1 @ 26.280”           -> vânzare
  *   „SPYL.DE USD 0.6600/ SHR”        -> dividend (0,66 USD pe acțiune)
  *   „FB.US USD WHT 15%”              -> impozit reținut la sursă pentru dividend
- * Restul (depuneri, retrageri, dobânzi, CFD-uri) este numărat și ignorat.
+ * Depunerile, retragerile, transferurile, dobânzile la cash (și impozitul lor) și
+ * comisioanele se recunosc după coloana „Type” (în mai multe limbi) și semnul sumei.
+ * CFD-urile și restul operațiunilor sunt numărate și ignorate.
  *
  * Modulul este pur (fără acces la fișiere sau la baza de date): primește
  * tabelele deja citite și întoarce operațiunile. Sumele din coloana „Amount”
@@ -38,6 +40,8 @@ export interface XtbTable {
 }
 
 interface XtbOperationBase {
+  /** Rândul din foaie (primul rând = 1), pentru mesaje. */
+  row: number;
   /** Identificatorul operațiunii în XTB; pe el se bazează evitarea dublurilor la reimport. */
   id: string;
   /** AAAA-LL-ZZ */
@@ -74,6 +78,21 @@ export interface XtbDividend extends XtbOperationBase {
 
 export type XtbOperation = XtbTrade | XtbDividend;
 
+/** O operațiune de numerar fără activ: depunere, retragere, dobândă, impozitul dobânzii, comision. */
+export interface XtbCashOperation {
+  kind: 'deposit' | 'withdrawal' | 'interest' | 'tax' | 'fee';
+  id: string;
+  date: string;
+  time: string;
+  /** Suma, pozitivă, în moneda contului. */
+  amount: number;
+  row: number;
+  /** Tipul din raport (ex.: „Deposit”), păstrat în notă. */
+  label: string;
+  /** Instrumentul la care se referă (ex.: comisionul SEC al unei vânzări), dacă apare. */
+  symbol: string;
+}
+
 export interface XtbIgnored {
   /** Tipul operațiunii așa cum apare în raport (ex.: „Deposit”). */
   label: string;
@@ -87,7 +106,9 @@ export interface XtbReport {
   accountCurrency: string | null;
   /** Operațiunile recunoscute, în ordine cronologică. */
   operations: XtbOperation[];
-  /** Rândurile care nu sunt cumpărări, vânzări sau dividende. */
+  /** Depunerile, retragerile, dobânzile și comisioanele, în ordine cronologică. */
+  cash: XtbCashOperation[];
+  /** Rândurile care nu se importă (CFD-uri, operațiuni necunoscute). */
   ignored: XtbIgnored[];
   /** Cantitățile din foaia „OPEN POSITION” (doar la Excel), pentru verificare. */
   openPositions: Record<string, number> | null;
@@ -131,6 +152,24 @@ const DATE_YMD = /^(\d{4})-(\d{2})-(\d{2})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?
 const TAX_WORDS = ['withholding', 'wht', 'impozit', 'podatek', 'retencion', 'retencao', 'quellensteuer', 'ritenuta', 'retenue'];
 const isTaxType = (key: string): boolean => TAX_WORDS.some((w) => key.includes(w));
 const isDividendType = (key: string): boolean => key.includes('divid') || key.includes('dywid');
+
+const has = (key: string, words: string[]): boolean => words.some((w) => key.includes(w));
+/** Operațiunile CFD (profitul închiderii, swap-uri) nu sunt mișcări de bani ale investitorului în acțiuni. */
+const CFD_WORDS = ['closetrade', 'swap', 'rollover', 'profit', 'cfd'];
+
+/** Felul unei operațiuni de numerar după tipul din raport (în mai multe limbi) și semnul sumei. */
+function classifyCash(typeKey: string, amount: number): XtbCashOperation['kind'] | null {
+  if (amount === 0 || has(typeKey, CFD_WORDS)) return null;
+  if (has(typeKey, ['interest', 'dobanda', 'odsetki', 'zinsen', 'interes'])) {
+    if (has(typeKey, ['tax', 'impozit', 'podatek', 'steuer', 'impuesto', 'imposto'])) return amount < 0 ? 'tax' : null;
+    return amount > 0 ? 'interest' : null;
+  }
+  if (has(typeKey, ['withdraw', 'retragere', 'wyplata', 'auszahlung', 'retiro', 'retrait', 'prelievo', 'levantamento'])) return amount < 0 ? 'withdrawal' : null;
+  if (has(typeKey, ['deposit', 'depunere', 'wplata', 'einzahlung', 'deposito', 'depot', 'versamento'])) return amount > 0 ? 'deposit' : null;
+  if (has(typeKey, ['transfer', 'przelew', 'ubertrag', 'transferencia', 'virement', 'trasferimento'])) return amount > 0 ? 'deposit' : 'withdrawal';
+  if (has(typeKey, ['fee', 'commission', 'comision', 'prowizja', 'gebuhr', 'oplata', 'comissao'])) return amount < 0 ? 'fee' : null;
+  return null;
+}
 
 const text = (cell: XtbCell | undefined): string => (cell === null || cell === undefined ? '' : String(cell).trim());
 const pad = (n: number | string): string => String(n).padStart(2, '0');
@@ -232,6 +271,7 @@ function detectByContent(rows: XtbCell[][], known: Columns): Columns {
 
 interface ParsedCash {
   operations: XtbOperation[];
+  cash: XtbCashOperation[];
   ignored: XtbIgnored[];
 }
 
@@ -256,6 +296,7 @@ function parseCash(rows: XtbCell[][]): ParsedCash | null {
   const decimalComma = usesDecimalComma(data.map((r) => at(r, 'amount')).filter((c): c is string => typeof c === 'string'));
 
   const trades: XtbTrade[] = [];
+  const cashOps: XtbCashOperation[] = [];
   /** Dividendele se adună pe (simbol, zi): rândul de dividend și cel de impozit sunt separate în raport. */
   const dividends = new Map<string, XtbDividend>();
   const taxes: { symbol: string; date: string; amount: number }[] = [];
@@ -268,18 +309,23 @@ function parseCash(rows: XtbCell[][]): ParsedCash | null {
   };
 
   data.forEach((row, index) => {
+    const rowNumber = (header ? header.index + 1 : 0) + index + 1;
     const comment = text(at(row, 'comment'));
     const symbol = text(at(row, 'symbol')).toUpperCase();
     const type = text(at(row, 'type'));
     const when = parseWhen(at(row, 'time'));
     if (!when && !symbol) return; // rând de total sau gol: fără dată și fără instrument
     const label = type || '(fără tip)';
-    if (!when || !SYMBOL.test(symbol)) return ignore(label, '');
-
+    if (!when) return ignore(label, '');
     const rawId = at(row, 'id');
     const id = typeof rawId === 'number' ? String(Math.trunc(rawId)) : text(rawId) || `r${when.date}${when.time}-${index}`;
     const amount = parseAmount(at(row, 'amount'), decimalComma);
     const typeKey = normalizeKey(type);
+    const cashKind = amount === null ? null : classifyCash(typeKey, amount);
+    const pushCash = (kind: XtbCashOperation['kind']): void =>
+      void cashOps.push({ kind, row: rowNumber, id, ...when, amount: Math.abs(amount as number), label, symbol: SYMBOL.test(symbol) ? symbol : '' });
+    if (!SYMBOL.test(symbol)) return cashKind ? pushCash(cashKind) : ignore(label, '');
+
     const name = text(at(row, 'name'));
     const categoryKey = normalizeKey(text(at(row, 'category')));
     if (categoryKey.includes('cfd')) return ignore(label, symbol); // CFD-urile nu sunt dețineri
@@ -292,6 +338,7 @@ function parseCash(rows: XtbCell[][]): ParsedCash | null {
       if (!(quantity > 0) || !(price >= 0)) return ignore(label, symbol);
       trades.push({
         kind: trade[1].toUpperCase() === 'OPEN' ? 'buy' : 'sell',
+        row: rowNumber,
         id,
         ...when,
         symbol,
@@ -320,6 +367,7 @@ function parseCash(rows: XtbCell[][]): ParsedCash | null {
       if (!existing) {
         dividends.set(key, {
           kind: 'dividend',
+          row: rowNumber,
           id,
           ...when,
           symbol,
@@ -339,6 +387,8 @@ function parseCash(rows: XtbCell[][]): ParsedCash | null {
       return;
     }
 
+    // Comisioane legate de un instrument (ex.: comisionul SEC la vânzare).
+    if (cashKind === 'fee') return pushCash('fee');
     ignore(label, symbol);
   });
 
@@ -368,7 +418,8 @@ function parseCash(rows: XtbCell[][]): ParsedCash | null {
   operations.sort(
     (a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.id.length - b.id.length || a.id.localeCompare(b.id)
   );
-  return { operations, ignored: [...ignored.values()].sort((a, b) => b.count - a.count) };
+  cashOps.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
+  return { operations, cash: cashOps, ignored: [...ignored.values()].sort((a, b) => b.count - a.count) };
 }
 
 /* ------------------------------------------------- metadate și verificări */
@@ -433,7 +484,7 @@ export function parseXtbReport(tables: XtbTable[], fileName = ''): XtbReport {
   let cash: ParsedCash | null = null;
   for (const table of ordered) {
     const parsed = parseCash(table.rows);
-    if (parsed && parsed.operations.length > 0) {
+    if (parsed && parsed.operations.length + parsed.cash.length > 0) {
       cash = parsed;
       break;
     }
@@ -445,7 +496,7 @@ export function parseXtbReport(tables: XtbTable[], fileName = ''): XtbReport {
         'Exportă din xStation istoricul contului (operațiunile de numerar) în format Excel sau CSV.'
     );
   }
-  if (cash.operations.length === 0) {
+  if (cash.operations.length === 0 && cash.cash.length === 0) {
     throw new XtbParseError(
       'Raportul nu conține cumpărări, vânzări sau dividende de acțiuni și ETF-uri. ' +
         'Verifică perioada aleasă la export: trebuie să înceapă de la deschiderea contului.'
@@ -454,6 +505,7 @@ export function parseXtbReport(tables: XtbTable[], fileName = ''): XtbReport {
   return {
     accountCurrency: findAccountCurrency(tables, fileName),
     operations: cash.operations,
+    cash: cash.cash,
     ignored: cash.ignored,
     openPositions: findOpenPositions(tables)
   };

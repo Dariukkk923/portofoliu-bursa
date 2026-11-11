@@ -1,12 +1,13 @@
 /**
  * Starea globală a interfeței: utilizatorul autentificat, setările, lista de
- * brokeri, filtrul global, starea prețurilor și notificările.
+ * brokeri și de portofolii, portofoliul selectat, filtrul global, starea
+ * prețurilor și notificările.
  *
  * `dataVersion` crește la orice modificare a datelor (o tranzacție nouă, prețuri
  * actualizate); paginile îl folosesc ca semnal că trebuie să-și reîncarce datele.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Broker, PortfolioFilter, PriceStatus, Settings, SettingsUpdate, Theme, User } from '@shared/types';
+import type { Broker, Portfolio, PortfolioFilter, PortfolioScope, PriceStatus, Settings, SettingsUpdate, Theme, User } from '@shared/types';
 import { api, errorMessage, onAppEvent } from '../api';
 
 export interface Toast {
@@ -20,6 +21,18 @@ interface AppState {
   user: User | null | undefined;
   settings: Settings | null;
   brokers: Broker[];
+  /** Toate portofoliile (inclusiv arhivate); `activePortfolios` doar cele nearhivate. */
+  portfolios: Portfolio[];
+  activePortfolios: Portfolio[];
+  /** Portofoliul selectat sau „all” (toate, combinate); ținut minte în setări. */
+  scope: PortfolioScope;
+  /** Portofoliul selectat, sau null în vederea combinată. */
+  currentPortfolio: Portfolio | null;
+  /** Portofoliul preselectat la adăugarea unei tranzacții: cel selectat, altfel primul activ. */
+  defaultPortfolioId: number | null;
+  setScope: (scope: PortfolioScope) => void;
+  reloadPortfolios: () => Promise<void>;
+  /** Filtrul global (broker, tip de activ) împreună cu portofoliul selectat. */
   filter: PortfolioFilter;
   priceStatus: PriceStatus | null;
   dataVersion: number;
@@ -35,6 +48,13 @@ interface AppState {
   refreshPrices: () => Promise<void>;
   notify: (tone: Toast['tone'], text: string) => void;
   dismissToast: (id: number) => void;
+  /**
+   * Butonul „Import Excel / CSV” din orice pagină cere deschiderea ecranului Import cu alegerea
+   * fișierului: `importRequest` crește la fiecare cerere, iar `takeImportRequest` o „consumă” o singură dată.
+   */
+  importRequest: number;
+  requestImport: () => void;
+  takeImportRequest: (request: number) => boolean;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -57,7 +77,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<User | null | undefined>(undefined);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [brokers, setBrokers] = useState<Broker[]>([]);
-  const [filter, setFilter] = useState<PortfolioFilter>({});
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [baseFilter, setFilter] = useState<PortfolioFilter>({});
   const [priceStatus, setPriceStatus] = useState<PriceStatus | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -76,8 +97,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const bumpData = useCallback(() => setDataVersion((v) => v + 1), []);
 
+  const [importRequest, setImportRequest] = useState(0);
+  const handledImport = useRef(0);
+  const requestImport = useCallback(() => setImportRequest((n) => n + 1), []);
+  const takeImportRequest = useCallback((request: number) => {
+    if (request <= handledImport.current) return false;
+    handledImport.current = request;
+    return true;
+  }, []);
+
   const reloadSettings = useCallback(async () => setSettings(await api.settings.get()), []);
   const reloadBrokers = useCallback(async () => setBrokers(await api.brokers.list()), []);
+  const reloadPortfolios = useCallback(async () => {
+    const [list, s] = await Promise.all([api.portfolios.list(), api.settings.get()]);
+    setPortfolios(list);
+    setSettings(s); // portofoliul selectat se poate schimba (ex.: cel curent a fost șters)
+  }, []);
 
   /** Încarcă tot ce ține de utilizatorul proaspăt autentificat (sau golește starea la ieșire). */
   const setUser = useCallback((next: User | null) => {
@@ -88,12 +123,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!next) {
       setSettings(null);
       setBrokers([]);
+      setPortfolios([]);
       return;
     }
-    void Promise.all([api.settings.get(), api.brokers.list(), api.prices.status()])
-      .then(([s, b, p]) => {
+    void Promise.all([api.settings.get(), api.brokers.list(), api.portfolios.list(), api.prices.status()])
+      .then(([s, b, pf, p]) => {
         setSettings(s);
         setBrokers(b);
+        setPortfolios(pf);
         setPriceStatus(p);
       })
       .catch(() => undefined);
@@ -115,10 +152,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         else if (event.type === 'data:changed') {
           bumpData();
           void reloadBrokers().catch(() => undefined);
-          void reloadSettings().catch(() => undefined);
+          void reloadPortfolios().catch(() => undefined);
         }
       }),
-    [bumpData, reloadBrokers, reloadSettings]
+    [bumpData, reloadBrokers, reloadPortfolios]
   );
 
   // Tema: din setările utilizatorului; înainte de login, ultima temă folosită pe acest calculator.
@@ -150,6 +187,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [bumpData, notify]
   );
 
+  const scope: PortfolioScope = settings?.activePortfolio ?? 'all';
+  const activePortfolios = useMemo(() => portfolios.filter((p) => !p.archived), [portfolios]);
+  const currentPortfolio = scope === 'all' ? null : (portfolios.find((p) => p.id === scope) ?? null);
+  const defaultPortfolioId = currentPortfolio?.id ?? activePortfolios[0]?.id ?? null;
+  const filter = useMemo<PortfolioFilter>(() => ({ ...baseFilter, portfolioId: scope === 'all' ? null : scope }), [baseFilter, scope]);
+
+  const setScope = useCallback(
+    (next: PortfolioScope) => {
+      // Schimbare imediată pe ecran; setarea se salvează în fundal (aplicația pornește data viitoare tot aici).
+      setSettings((s) => (s ? { ...s, activePortfolio: next } : s));
+      api.settings.update({ activePortfolio: next }).catch((err) => notify('error', errorMessage(err)));
+    },
+    [notify]
+  );
+
   const refreshPrices = useCallback(async () => {
     try {
       const result = await api.prices.refresh();
@@ -166,6 +218,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       user,
       settings,
       brokers,
+      portfolios,
+      activePortfolios,
+      scope,
+      currentPortfolio,
+      defaultPortfolioId,
+      setScope,
+      reloadPortfolios,
       filter,
       priceStatus,
       dataVersion,
@@ -179,9 +238,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
       bumpData,
       refreshPrices,
       notify,
-      dismissToast
+      dismissToast,
+      importRequest,
+      requestImport,
+      takeImportRequest
     }),
-    [user, settings, brokers, filter, priceStatus, dataVersion, toasts, setUser, logout, updateSettings, reloadSettings, reloadBrokers, bumpData, refreshPrices, notify, dismissToast]
+    [
+      user,
+      settings,
+      brokers,
+      portfolios,
+      activePortfolios,
+      scope,
+      currentPortfolio,
+      defaultPortfolioId,
+      setScope,
+      reloadPortfolios,
+      filter,
+      priceStatus,
+      dataVersion,
+      toasts,
+      setUser,
+      logout,
+      updateSettings,
+      reloadSettings,
+      reloadBrokers,
+      bumpData,
+      refreshPrices,
+      notify,
+      dismissToast,
+      importRequest,
+      requestImport,
+      takeImportRequest
+    ]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

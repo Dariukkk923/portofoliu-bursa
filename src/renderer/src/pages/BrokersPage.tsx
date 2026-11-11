@@ -1,15 +1,19 @@
-/** Lista de brokeri a utilizatorului: adăugare, redenumire, ștergere și valoarea deținută la fiecare. */
+/** Lista de brokeri a utilizatorului: adăugare, redenumire, ștergere, tipul (România / străin) și valoarea deținută la fiecare. */
 import { useState, type FormEvent } from 'react';
 import { Building2, Pencil, Plus, Trash2 } from 'lucide-react';
-import type { Broker } from '@shared/types';
+import type { Broker, BrokerResidence } from '@shared/types';
+import { guessResidence, RESIDENCE_HINT } from '@shared/tax';
 import { api, errorMessage } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
 import { money, percent } from '../lib/format';
-import { Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Input, Modal, Notice, TD, TH, Textarea, cx } from '../components/ui';
+import { Badge, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Input, Modal, Notice, Segmented, TD, TH, Textarea, cx } from '../components/ui';
 
 function BrokerForm({ broker, onClose, onSaved }: { broker: Broker | null; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(broker?.name ?? '');
   const [notes, setNotes] = useState(broker?.notes ?? '');
+  // La un broker nou, tipul se deduce din nume până când utilizatorul îl alege.
+  const [chosen, setChosen] = useState<BrokerResidence | null>(broker?.residence ?? null);
+  const residence = chosen ?? guessResidence(name);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -18,8 +22,8 @@ function BrokerForm({ broker, onClose, onSaved }: { broker: Broker | null; onClo
     setSaving(true);
     setError(null);
     try {
-      if (broker) await api.brokers.update(broker.id, { name, notes });
-      else await api.brokers.create({ name, notes });
+      if (broker) await api.brokers.update(broker.id, { name, notes, residence });
+      else await api.brokers.create({ name, notes, residence });
       onSaved();
     } catch (err) {
       setError(errorMessage(err));
@@ -45,6 +49,16 @@ function BrokerForm({ broker, onClose, onSaved }: { broker: Broker | null; onClo
       <form id="broker-form" onSubmit={submit} className="space-y-3.5">
         <Field label="Nume">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="ex.: XTB, Tradeville, Revolut, Binance" maxLength={60} required autoFocus />
+        </Field>
+        <Field label="Pentru raportul fiscal" hint={RESIDENCE_HINT[residence]}>
+          <Segmented<BrokerResidence>
+            value={residence}
+            onChange={setChosen}
+            options={[
+              { value: 'ro', label: 'Broker din România' },
+              { value: 'foreign', label: 'Broker străin' }
+            ]}
+          />
         </Field>
         <Field label="Note (opțional)">
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={300} />
@@ -89,7 +103,7 @@ export function BrokersPage() {
   return (
     <>
       <div className="flex items-center gap-3">
-        <p className="text-[13px] text-ink-2">Brokerii la care ai conturi. La fiecare achiziție alegi brokerul, iar pozițiile se pot vedea pe total sau separat pe broker.</p>
+        <p className="text-body text-ink-2">Brokerii la care ai conturi. La fiecare achiziție alegi brokerul, iar pozițiile se pot vedea pe total sau separat pe broker.</p>
         <Button variant="primary" className="ml-auto" icon={<Plus className="size-4" />} onClick={() => setForm({ broker: null })}>
           Adaugă broker
         </Button>
@@ -97,12 +111,23 @@ export function BrokersPage() {
 
       <Card padded={false}>
         {brokers.length === 0 ? (
-          <EmptyState icon={<Building2 className="size-5" />} title="Niciun broker încă" text="Adaugă brokerii pe care îi folosești (de exemplu XTB, Tradeville, Revolut sau Binance)." />
+          <EmptyState
+            icon={<Building2 className="size-5" />}
+            title="Niciun broker încă"
+            text="Adaugă brokerii pe care îi folosești (de exemplu XTB, Tradeville, Revolut sau Binance)."
+            action={
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setForm({ broker: null })}>
+                Adaugă primul broker
+              </Button>
+            }
+          />
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-line">
                 <th className={TH}>Broker</th>
+                <th className={TH}>Tip</th>
                 <th className={TH}>Note</th>
                 <th className={cx(TH, 'text-right')}>Tranzacții</th>
                 <th className={cx(TH, 'text-right')}>Valoare deținută</th>
@@ -116,6 +141,7 @@ export function BrokersPage() {
                 return (
                   <tr key={b.id} className="border-b border-line last:border-0 hover:bg-surface-2/60">
                     <td className={cx(TD, 'font-semibold')}>{b.name}</td>
+                    <td className={TD}>{b.residence === 'ro' ? <Badge tone="accent">România</Badge> : <Badge>Străin</Badge>}</td>
                     <td className={cx(TD, 'max-w-72 truncate text-ink-2')}>{b.notes ?? ''}</td>
                     <td className={cx(TD, 'tabular text-right')}>{b.transactionCount ?? 0}</td>
                     <td className={cx(TD, 'tabular text-right')}>{slice ? money(slice.value, base) : '—'}</td>
@@ -135,6 +161,7 @@ export function BrokersPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 

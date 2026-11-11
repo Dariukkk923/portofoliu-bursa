@@ -66,7 +66,7 @@ export function AuthPage() {
             <ChartNoAxesCombined className="size-6" aria-hidden />
           </div>
           <h1 className="text-xl font-semibold text-ink">Portofoliu Bursa</h1>
-          <p className="mt-1 text-[13px] text-ink-2">Acțiuni, ETF-uri, obligațiuni și crypto, într-un singur loc.</p>
+          <p className="mt-1 text-body text-ink-2">Acțiuni, ETF-uri, obligațiuni și crypto, într-un singur loc.</p>
         </div>
 
         <div className="rounded-xl border border-line bg-surface p-6">
@@ -76,7 +76,7 @@ export function AuthPage() {
                 key={m}
                 type="button"
                 onClick={() => switchMode(m)}
-                className={`rounded-md py-1.5 text-[13px] font-medium transition ${mode === m ? 'bg-surface text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+                className={`rounded-md py-1.5 text-body font-medium transition ${mode === m ? 'bg-surface text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
               >
                 {m === 'login' ? 'Autentificare' : 'Cont nou'}
               </button>
@@ -108,7 +108,7 @@ export function AuthPage() {
               </Field>
             )}
             {mode === 'login' && (
-              <label className="flex items-center gap-2 text-[13px] text-ink-2">
+              <label className="flex items-center gap-2 text-body text-ink-2">
                 <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="size-4 accent-(--accent)" />
                 Ține-mă minte pe acest calculator
               </label>

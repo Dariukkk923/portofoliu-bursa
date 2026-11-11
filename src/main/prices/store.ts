@@ -129,6 +129,31 @@ export function setHistorySync(db: Db, userId: number, symbol: string, fromDate:
   ).run(userId, symbol, fromDate, new Date().toISOString(), provider);
 }
 
+/** Logo-ul salvat al unui simbol: imaginea ca „data URL”, sau null dacă providerul nu are logo. */
+export interface CachedLogo {
+  dataUrl: string | null;
+  fetchedAt: string;
+}
+
+const toBase64 = (data: Uint8Array): string => Buffer.from(data).toString('base64');
+
+export function getLogos(db: Db, userId: number, symbols: string[]): Map<string, CachedLogo> {
+  const stmt = db.prepare('SELECT mime, data, fetched_at FROM logos WHERE user_id = ? AND symbol = ?');
+  const out = new Map<string, CachedLogo>();
+  for (const symbol of new Set(symbols)) {
+    const r = stmt.get(userId, symbol) as { mime: string | null; data: Uint8Array | null; fetched_at: string } | undefined;
+    if (r) out.set(symbol, { dataUrl: r.data && r.mime ? `data:${r.mime};base64,${toBase64(r.data)}` : null, fetchedAt: r.fetched_at });
+  }
+  return out;
+}
+
+export function saveLogo(db: Db, userId: number, symbol: string, image: { data: Uint8Array; mime: string } | null, source: string): void {
+  db.prepare(
+    `INSERT INTO logos (user_id, symbol, mime, data, source, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (user_id, symbol) DO UPDATE SET mime = excluded.mime, data = excluded.data, source = excluded.source, fetched_at = excluded.fetched_at`
+  ).run(userId, symbol, image?.mime ?? null, image ? Buffer.from(image.data) : null, source, new Date().toISOString());
+}
+
 /**
  * Cursuri aproximative față de RON, folosite doar dacă nu există niciun curs
  * salvat (prima pornire fără internet). Interfața afișează atunci un avertisment.

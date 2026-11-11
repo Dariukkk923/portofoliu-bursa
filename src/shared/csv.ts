@@ -25,7 +25,8 @@ export const CSV_COLUMNS = [
   'valoare_nominala',
   'rata_cupon',
   'frecventa_cupon',
-  'data_scadenta'
+  'data_scadenta',
+  'portofoliu'
 ] as const;
 export type CsvColumn = (typeof CSV_COLUMNS)[number];
 
@@ -34,12 +35,15 @@ function detectDelimiter(text: string): string {
   let inQuotes = false;
   let commas = 0;
   let semicolons = 0;
+  let tabs = 0;
   for (const ch of text) {
     if (ch === '"') inQuotes = !inQuotes;
     else if (!inQuotes && ch === ',') commas++;
     else if (!inQuotes && ch === ';') semicolons++;
+    else if (!inQuotes && ch === '\t') tabs++;
     else if (!inQuotes && ch === '\n') break;
   }
+  if (tabs > commas && tabs > semicolons) return '\t';
   return semicolons > commas ? ';' : ',';
 }
 
@@ -168,7 +172,20 @@ const TX_TYPE_ALIASES: Record<string, TransactionType> = {
   cupon: 'coupon',
   coupon: 'coupon',
   cuponincasat: 'coupon',
-  split: 'split'
+  split: 'split',
+  depunere: 'deposit',
+  deposit: 'deposit',
+  alimentare: 'deposit',
+  retragere: 'withdrawal',
+  withdrawal: 'withdrawal',
+  comision: 'fee',
+  fee: 'fee',
+  taxa: 'fee',
+  dobanda: 'interest',
+  interest: 'interest',
+  ajustare: 'adjustment',
+  ajustaresold: 'adjustment',
+  adjustment: 'adjustment'
 };
 
 const ASSET_TYPE_ALIASES: Record<string, AssetType> = {

@@ -5,6 +5,7 @@
  */
 import type { AssetType, SymbolSearchResult } from '@shared/types';
 import {
+  fetchImage,
   fetchJson,
   parseCryptoSymbol,
   parseFxSymbol,
@@ -13,7 +14,9 @@ import {
   splitExchangeSuffix,
   toNumber,
   type HistoryResult,
+  type LogoImage,
   type PriceProvider,
+  type ProviderDividend,
   type Quote,
   type SymbolRef
 } from './provider';
@@ -67,6 +70,42 @@ export class PolygonProvider implements PriceProvider {
       currency,
       asOf: bar?.t ? new Date(Number(bar.t)).toISOString() : new Date().toISOString()
     };
+  }
+
+  /** Iconița companiei din detaliile tickerului (doar acțiuni și ETF-uri din SUA). Imaginea cere și ea cheia. */
+  async getLogo(ref: SymbolRef): Promise<LogoImage | null> {
+    if (ref.type !== 'stock' && ref.type !== 'etf') return null;
+    let data: Json;
+    try {
+      data = await this.call(`/v3/reference/tickers/${encodeURIComponent(this.ticker(ref).ticker)}`);
+    } catch (err) {
+      if (err instanceof ProviderError && err.kind === 'notfound') return null;
+      throw err;
+    }
+    const branding = (data.results as Json | undefined)?.branding as Json | undefined;
+    const url = String(branding?.icon_url ?? branding?.logo_url ?? '');
+    if (!/^https:\/\//.test(url)) return null;
+    return this.limiter.schedule(() => fetchImage(`${url}${url.includes('?') ? '&' : '?'}apiKey=${encodeURIComponent(this.apiKey)}`));
+  }
+
+  /** Dividendele declarate (inclusiv cele viitoare), cu data plății. Doar acțiuni și ETF-uri din SUA. */
+  async getDividends(ref: SymbolRef, from: string): Promise<ProviderDividend[] | null> {
+    if (ref.type !== 'stock' && ref.type !== 'etf') return null;
+    let ticker: string;
+    try {
+      ticker = this.ticker(ref).ticker;
+    } catch {
+      return null;
+    }
+    const data = await this.call('/v3/reference/dividends', { ticker, 'ex_dividend_date.gte': from, order: 'asc', sort: 'ex_dividend_date', limit: '1000' });
+    return ((data.results ?? []) as Json[])
+      .map((r) => ({
+        exDate: String(r.ex_dividend_date ?? ''),
+        payDate: r.pay_date ? String(r.pay_date) : null,
+        amount: toNumber(r.cash_amount),
+        currency: r.currency ? String(r.currency).toUpperCase() : 'USD'
+      }))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.exDate) && d.amount > 0);
   }
 
   async getHistory(ref: SymbolRef, from: string, to: string): Promise<HistoryResult> {

@@ -11,28 +11,56 @@ import type {
   AssetType,
   AssetUpdate,
   Broker,
-  BrokerImportOptions,
-  BrokerImportPreview,
-  BrokerImportResult,
+  BrokerInput,
   CsvImportResult,
+  DividendCalendar,
   FileResult,
+  Goal,
+  GoalInput,
+  GoalView,
   HistoryPoint,
   HistoryRange,
+  ImportBatchView,
+  ImportOptions,
+  ImportResult,
+  ImportSessionView,
+  ImportTemplate,
+  JournalEntry,
+  JournalEntryInput,
+  JournalFilters,
+  JournalList,
+  LogoRequest,
+  ManualDividendInput,
+  MoveOptions,
+  MovePreview,
+  MoveResult,
+  PerformanceData,
+  Portfolio,
+  PortfolioComparison,
+  PortfolioInput,
   PortfolioFilter,
   PortfolioOverview,
   PriceStatus,
   ProviderId,
   PurchaseInput,
+  RiskReport,
+  SimulationRequest,
+  SimulationResult,
   RefreshResult,
   Settings,
   SettingsUpdate,
   SymbolQuote,
   SymbolSearchResult,
+  TaxReport,
   Transaction,
   TransactionFilters,
   TransactionInput,
   TransactionView,
-  User
+  User,
+  Watchlist,
+  WatchlistItemInput,
+  WatchlistItemUpdate,
+  WatchlistItemView
 } from './types';
 
 export interface Api {
@@ -47,9 +75,43 @@ export interface Api {
   };
   brokers: {
     list(): Promise<Broker[]>;
-    create(input: { name: string; notes?: string | null }): Promise<Broker>;
-    update(id: number, input: { name: string; notes?: string | null }): Promise<Broker>;
+    create(input: BrokerInput): Promise<Broker>;
+    update(id: number, input: BrokerInput): Promise<Broker>;
     remove(id: number): Promise<void>;
+  };
+  portfolios: {
+    /** Toate portofoliile, inclusiv cele arhivate (la final). */
+    list(): Promise<Portfolio[]>;
+    create(input: PortfolioInput): Promise<Portfolio>;
+    update(id: number, input: PortfolioInput): Promise<Portfolio>;
+    archive(id: number, archived: boolean): Promise<Portfolio>;
+    /** Șterge portofoliul cu toate tranzacțiile lui. */
+    remove(id: number): Promise<void>;
+    duplicate(id: number, name?: string): Promise<Portfolio>;
+    reorder(ids: number[]): Promise<void>;
+    /** Portofoliile active unul lângă altul: valoare, profit, randament și risc. */
+    compare(): Promise<PortfolioComparison[]>;
+  };
+  watchlists: {
+    /** Listele utilizatorului (la prima folosire se creează lista „De urmărit”). */
+    list(): Promise<Watchlist[]>;
+    create(name: string): Promise<Watchlist>;
+    rename(id: number, name: string): Promise<Watchlist>;
+    /** Șterge lista cu tot ce conține (cel puțin o listă rămâne). */
+    remove(id: number): Promise<void>;
+    reorder(ids: number[]): Promise<void>;
+    items(watchlistId: number): Promise<WatchlistItemView[]>;
+    addItem(watchlistId: number, input: WatchlistItemInput): Promise<WatchlistItemView>;
+    updateItem(id: number, patch: WatchlistItemUpdate): Promise<WatchlistItemView>;
+    removeItem(id: number): Promise<void>;
+    reorderItems(watchlistId: number, ids: number[]): Promise<void>;
+  };
+  logos: {
+    /**
+     * Logo-urile salvate local, ca „data URL” (null = încă nu există). Cele lipsă se descarcă în fundal
+     * de la providerii configurați care oferă logo-uri, iar la final vine evenimentul `logos:changed`.
+     */
+    get(requests: LogoRequest[]): Promise<Record<string, string | null>>;
   };
   assets: {
     list(): Promise<Asset[]>;
@@ -59,13 +121,64 @@ export interface Api {
   portfolio: {
     overview(filter: PortfolioFilter): Promise<PortfolioOverview>;
     history(range: HistoryRange, filter: PortfolioFilter): Promise<HistoryPoint[]>;
+    /** Randamentul TWR și XIRR pe interval, plus totalul depus net de la început. */
+    performance(range: HistoryRange, filter: PortfolioFilter): Promise<PerformanceData>;
+    /** Ecranul „Risc”: concentrare, expuneri, volatilitate, scădere maximă, beta, scor de diversificare. */
+    risk(range: HistoryRange, filter: PortfolioFilter): Promise<RiskReport>;
     addPurchase(input: PurchaseInput): Promise<Transaction>;
+  };
+  dividends: {
+    /** Calendarul anului ales: dividende încasate, anunțate, estimate și cupoane; venitul pe luni; propuneri; randamente. */
+    calendar(year: number, filter: PortfolioFilter): Promise<DividendCalendar>;
+    addManual(input: ManualDividendInput): Promise<void>;
+    removeManual(id: number): Promise<void>;
+    /** „Nu l-am primit”: dividendul propus nu se mai propune. */
+    dismiss(assetId: number, exDate: string): Promise<void>;
+  };
+  simulator: {
+    /** Descarcă (dacă lipsesc) istoricul, cursul și dividendele instrumentului, apoi face simularea. */
+    run(request: SimulationRequest): Promise<SimulationResult>;
+  };
+  goals: {
+    /** Obiectivele cu datele proiecției (valoarea actuală, contribuția medie, randamentul și volatilitatea). */
+    list(): Promise<GoalView[]>;
+    create(input: GoalInput): Promise<Goal>;
+    update(id: number, input: GoalInput): Promise<Goal>;
+    remove(id: number): Promise<void>;
+  };
+  journal: {
+    /** Cronologia (cele mai noi întâi), cu filtre; include vânzările care au un plan anterior. */
+    list(filters: JournalFilters): Promise<JournalList>;
+    create(input: JournalEntryInput): Promise<JournalEntry>;
+    update(id: number, input: JournalEntryInput): Promise<JournalEntry>;
+    remove(id: number): Promise<void>;
+    /** Teza a fost revizuită; opțional, următoarea revizuire peste câteva luni. */
+    markReviewed(id: number, nextInMonths: number | null): Promise<JournalEntry>;
+    /** Planul în vigoare pentru o poziție (afișat la vânzare). */
+    planFor(portfolioId: number | null, assetId: number): Promise<JournalEntry | null>;
+    /** Câte teze sunt de revizuit acum. */
+    dueCount(): Promise<number>;
+    exportCsv(filters: JournalFilters): Promise<FileResult>;
+    exportPdf(filters: JournalFilters): Promise<FileResult>;
+  };
+  tax: {
+    /** Raportul anual (descarcă întâi cursurile BNR lipsă). `portfolioId` null = toate portofoliile, inclusiv cele arhivate. */
+    report(year: number, portfolioId: number | null): Promise<TaxReport>;
+    /** Deschide dialogul de salvare și scrie detalierea ca CSV. */
+    exportCsv(year: number, portfolioId: number | null): Promise<FileResult>;
+    /** Deschide dialogul de salvare și scrie raportul ca PDF. */
+    exportPdf(year: number, portfolioId: number | null): Promise<FileResult>;
   };
   transactions: {
     list(filters: TransactionFilters): Promise<TransactionView[]>;
     create(input: TransactionInput): Promise<Transaction>;
     update(id: number, input: TransactionInput): Promise<Transaction>;
     remove(id: number): Promise<void>;
+    /** Ce s-ar întâmpla la mutarea tranzacțiilor în alt portofoliu (pentru confirmare). */
+    previewMove(ids: number[], portfolioId: number): Promise<MovePreview>;
+    move(ids: number[], portfolioId: number, options: MoveOptions): Promise<MoveResult>;
+    /** Tranzacțiile unei poziții (activ + broker) dintr-un portofoliu, pentru mutarea ei întregi. */
+    positionIds(portfolioId: number, assetId: number, brokerId: number): Promise<number[]>;
     /** Deschide dialogul de salvare și scrie fișierul CSV. */
     exportCsv(filters: TransactionFilters): Promise<FileResult>;
   };
@@ -81,17 +194,27 @@ export interface Api {
     search(query: string): Promise<SymbolSearchResult[]>;
     lookup(symbol: string, type: AssetType): Promise<SymbolQuote | null>;
   };
-  brokerImport: {
+  imports: {
     /**
-     * Deschide dialogul de alegere a fișierului de importat și îi recunoaște tipul:
-     *  - raportul exportat din xStation (XTB), Excel sau CSV: întoarce `preview`
-     *    (ce s-a găsit), fără să salveze nimic — urmează `apply`;
+     * Deschide dialogul de alegere a fișierului (CSV sau Excel) și îi recunoaște formatul după structură:
+     *  - extrasul unui broker cunoscut (XTB, Trading 212, Revolut, Interactive Brokers): întoarce
+     *    `session` cu previzualizarea, fără să salveze nimic — urmează `apply`;
+     *  - orice alt tabel: `session` cu coloanele și maparea propusă (sau din șablonul salvat);
      *  - un CSV exportat din această aplicație: îl importă direct și întoarce `csv`.
-     * Aplicația nu se conectează la contul de la broker: lucrează doar cu fișierul ales.
+     * Aplicația nu se conectează la contul de la broker: lucrează doar cu fișierul ales, local.
      */
-    open(): Promise<{ canceled: boolean; preview?: BrokerImportPreview; csv?: CsvImportResult }>;
-    /** Salvează tranzacțiile din raportul XTB citit la `open`. */
-    apply(token: string, options: BrokerImportOptions): Promise<BrokerImportResult>;
+    open(options?: ImportOptions): Promise<{ canceled: boolean; session?: ImportSessionView; csv?: CsvImportResult }>;
+    /** Recalculează previzualizarea cu opțiunile alese (portofoliu, broker, mapare, simboluri). */
+    preview(token: string, options: ImportOptions): Promise<ImportSessionView>;
+    /** Salvează tranzacțiile noi ca un lot (care poate fi anulat). */
+    apply(token: string, options: ImportOptions): Promise<ImportResult>;
+    /** Abandonează fișierul citit. */
+    discard(token: string): Promise<void>;
+    batches(): Promise<ImportBatchView[]>;
+    /** Anulează complet un import. */
+    undo(batchId: number): Promise<{ removed: number; restored: number }>;
+    templates(): Promise<ImportTemplate[]>;
+    deleteTemplate(id: number): Promise<void>;
   };
   backup: {
     create(): Promise<FileResult>;
@@ -112,7 +235,9 @@ export interface AppInfo {
 export type AppEvent =
   | { type: 'prices:status'; payload: PriceStatus }
   /** Datele s-au schimbat în fundal (prețuri noi, restaurare) și ecranele trebuie reîncărcate. */
-  | { type: 'data:changed' };
+  | { type: 'data:changed' }
+  /** Au sosit logo-uri noi pentru simbolurile date. */
+  | { type: 'logos:changed'; payload: string[] };
 
 /** Plicul răspunsului IPC: erorile ajung în interfață ca text, nu ca excepții serializate. */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string };

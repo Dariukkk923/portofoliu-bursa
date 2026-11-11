@@ -352,7 +352,8 @@ describe('portofoliul evaluat', () => {
     expect(series[2].value).toBeCloseTo(10 * 160 * 4.6, 6);
     expect(series[4].value).toBeCloseTo(10 * 160 * 4.6, 6); // weekend: ultimul preț cunoscut
     expect(series[5].value).toBeCloseTo(10 * 170 * 4.7, 6); // azi: prețul curent
-    expect(series[5].invested).toBeCloseTo(10 * 150 * 4.7, 6);
+    // Investit = costul la cursul din ziua cumpărării (cel mai apropiat curs anterior: 4.5).
+    expect(series[5].invested).toBe(6750);
     expect(getHistory(db, bob.id, 'ALL')).toEqual([]);
   });
 });
@@ -450,6 +451,8 @@ describe('backup și restaurare', () => {
     const xtb = createBroker(db, alice.id, { name: 'XTB' });
     const { asset } = addPurchase(db, alice.id, { asset: AAPL, brokerId: xtb.id, date: '2024-01-10', quantity: 10, price: 150, fee: 1 });
     createTransaction(db, alice.id, { assetId: asset.id, brokerId: xtb.id, type: 'sell', date: '2024-03-10', quantity: 4, price: 200 });
+    // O depunere (tranzacție de cash, fără activ) trebuie să treacă și ea prin backup.
+    createTransaction(db, alice.id, { assetId: null, brokerId: xtb.id, type: 'deposit', date: '2024-01-05', currency: 'USD', amount: 2000 });
     saveQuote(db, alice.id, { symbol: 'AAPL', price: 210, currency: 'USD', asOf: '2025-06-01T00:00:00Z', provider: 'yahoo' });
     updateSettings(db, alice.id, { costMethod: 'FIFO' });
     // Bob are date proprii, care trebuie înlocuite la restaurare, și nu trebuie să apară în backup-ul lui Alice.
@@ -457,7 +460,7 @@ describe('backup și restaurare', () => {
     addPurchase(db, bob.id, { asset: { type: 'etf', symbol: 'VWCE.DE', currency: 'EUR' }, brokerId: bobBroker.id, date: '2024-01-15', quantity: 3, price: 100, fee: 0 });
 
     const file = join(tmp, 'backup-alice.db');
-    expect(createBackup(db, alice.id, file).transactions).toBe(2);
+    expect(createBackup(db, alice.id, file).transactions).toBe(3);
 
     const backup = new Database(file, { readonly: true });
     expect(backup.prepare('SELECT COUNT(*) AS n FROM users').get()).toEqual({ n: 1 });
@@ -465,11 +468,12 @@ describe('backup și restaurare', () => {
     expect(backup.prepare("SELECT COUNT(*) AS n FROM assets WHERE symbol = 'VWCE.DE'").get()).toEqual({ n: 0 });
     backup.close();
 
-    expect(restoreBackup(db, bob.id, file)).toEqual({ brokers: 1, assets: 1, transactions: 2 });
+    expect(restoreBackup(db, bob.id, file)).toEqual({ brokers: 1, assets: 1, transactions: 3 });
     const o = getOverview(db, bob.id);
     expect(o.positions.map((p) => [p.symbol, p.brokerName, p.quantity, p.price])).toEqual([['AAPL', 'XTB', 6, 210]]);
+    expect(o.cashBalances.map((c) => [c.brokerName, c.currency, c.amount])).toEqual([['XTB', 'USD', 1299]]); // 2000 − 1501 + 800
     expect(getSettings(db, bob.id).costMethod).toBe('FIFO');
-    expect(listTransactions(db, alice.id)).toHaveLength(2); // Alice nu este afectată
+    expect(listTransactions(db, alice.id)).toHaveLength(3); // Alice nu este afectată
   });
 
   it('refuză fișierele care nu sunt backup-uri ale aplicației', () => {

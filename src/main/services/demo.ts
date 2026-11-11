@@ -9,6 +9,7 @@ import { findUserByName, register } from './auth';
 import { rowToUser } from './common';
 import { createBroker } from './brokers';
 import { addPurchase, createTransaction } from './transactions';
+import { createPortfolio, ensureDefaultPortfolio } from './portfolios';
 import { findAssetBySymbol } from './assets';
 import { saveQuote } from '../prices/store';
 
@@ -50,11 +51,27 @@ const BOND: AssetInput = {
 function seed(db: Db, userId: number): void {
   const xtb = createBroker(db, userId, { name: 'XTB', notes: 'Acțiuni SUA, ETF-uri, crypto' }).id;
   const tradeville = createBroker(db, userId, { name: 'Tradeville', notes: 'BVB și titluri de stat' }).id;
+  // Două portofolii: cel principal și unul separat pentru crypto (cu moneda de bază EUR).
+  const main = ensureDefaultPortfolio(db, userId).id;
+  const crypto = createPortfolio(db, userId, { name: 'Crypto', color: 'amber', icon: 'bitcoin', baseCurrency: 'EUR' }).id;
 
-  const purchase = (asset: AssetInput, brokerId: number, date: string, quantity: number, price: number, fee = 0): void => {
-    addPurchase(db, userId, { asset, brokerId, date, quantity, price, fee });
+  const purchase = (asset: AssetInput, brokerId: number, date: string, quantity: number, price: number, fee = 0, portfolioId = main): void => {
+    addPurchase(db, userId, { portfolioId, asset, brokerId, date, quantity, price, fee });
   };
   const idOf = (symbol: string): number => (findAssetBySymbol(db, userId, symbol) as { id: number }).id;
+  const cash = (type: 'deposit' | 'withdrawal', brokerId: number, date: string, amount: number, currency: string, portfolioId = main): void => {
+    createTransaction(db, userId, { portfolioId, type, assetId: null, brokerId, date, amount, currency });
+  };
+
+  // Depunerile și retragerile: din ele aplicația calculează cash-ul disponibil și randamentul (TWR, XIRR).
+  cash('deposit', xtb, '2024-01-08', 4300, 'USD');
+  cash('deposit', xtb, '2024-01-09', 1700, 'USD', crypto);
+  cash('deposit', xtb, '2024-01-12', 3500, 'EUR');
+  cash('deposit', xtb, '2024-02-01', 1850, 'EUR', crypto);
+  cash('withdrawal', xtb, '2025-01-10', 500, 'EUR');
+  cash('deposit', tradeville, '2024-03-01', 9000, 'RON');
+  cash('deposit', tradeville, '2024-09-02', 1200, 'USD');
+  createTransaction(db, userId, { type: 'interest', assetId: null, brokerId: xtb, date: '2025-06-02', currency: 'USD', grossAmount: 3.2, taxWithheld: 0.32 });
 
   // Acțiuni SUA — AAPL cumpărat la ambii brokeri (apare separat pe broker și agregat pe total).
   purchase(AAPL, xtb, '2024-02-12', 10, 187.15);
@@ -83,10 +100,13 @@ function seed(db: Db, userId: number): void {
   createTransaction(db, userId, { assetId: idOf('R2710A'), brokerId: tradeville, type: 'coupon', date: '2025-10-15', grossAmount: 360, taxWithheld: 0 });
   createTransaction(db, userId, { assetId: idOf('R2710A'), brokerId: tradeville, type: 'coupon', date: '2026-10-15', grossAmount: 360, taxWithheld: 0 });
 
-  // Crypto, cu unități fracționare.
-  purchase(BTC, xtb, '2024-01-10', 0.035, 46627.78, 5);
-  purchase(ETH, xtb, '2024-02-05', 0.85, 2140.25, 3);
-  createTransaction(db, userId, { assetId: idOf('ETH-EUR'), brokerId: xtb, type: 'sell', date: '2024-12-05', quantity: 0.25, price: 3599.87, fee: 2 });
+  // Crypto, cu unități fracționare, în portofoliul separat.
+  purchase(BTC, xtb, '2024-01-10', 0.035, 46627.78, 5, crypto);
+  purchase(ETH, xtb, '2024-02-05', 0.85, 2140.25, 3, crypto);
+  createTransaction(db, userId, { portfolioId: crypto, assetId: idOf('ETH-EUR'), brokerId: xtb, type: 'sell', date: '2024-12-05', quantity: 0.25, price: 3599.87, fee: 2 });
+
+  // Contul demo pornește pe vederea combinată, cu ambele portofolii.
+  db.prepare("UPDATE settings SET active_portfolio = 'all' WHERE user_id = ?").run(userId);
 
   for (const [symbol, price, currency] of DEMO_PRICES) {
     saveQuote(db, userId, { symbol, price, currency, asOf: DEMO_PRICES_DATE, provider: 'demo' });

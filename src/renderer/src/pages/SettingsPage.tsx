@@ -3,6 +3,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Database, KeyRound, Lock, Save, Upload } from 'lucide-react';
 import { BASE_CURRENCIES, PROVIDER_IDS, REFRESH_INTERVALS, type CostMethod, type ProviderId, type Theme } from '@shared/types';
 import { COST_METHOD_LABEL, PROVIDER_LABEL } from '@shared/labels';
+import { BENCHMARKS } from '@shared/benchmarks';
 import { api, errorMessage } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
 import { Badge, Button, Card, ConfirmDialog, Field, Input, Notice, Segmented, Select } from '../components/ui';
@@ -12,7 +13,7 @@ function Row({ label, hint, children }: { label: string; hint?: ReactNode; child
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-line py-3.5 first:pt-0 last:border-0 last:pb-0">
       <div className="max-w-xl min-w-0">
-        <p className="text-[13px] font-medium text-ink">{label}</p>
+        <p className="text-body font-medium text-ink">{label}</p>
         {hint && <p className="mt-0.5 text-xs text-ink-3">{hint}</p>}
       </div>
       <div className="shrink-0">{children}</div>
@@ -190,6 +191,18 @@ export function SettingsPage() {
             {(Object.keys(COST_METHOD_LABEL) as CostMethod[]).map((m) => (
               <option key={m} value={m}>
                 {COST_METHOD_LABEL[m]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row
+          label="Indicele de referință"
+          hint="Randamentul portofoliului se compară cu el pe panoul principal și în ecranul Risc. Fiecare portofoliu își poate alege altul (Portofolii → editează)."
+        >
+          <Select className="w-72!" value={settings.benchmark} onChange={(e) => void updateSettings({ benchmark: e.target.value })} aria-label="Indicele de referință">
+            {BENCHMARKS.map((b) => (
+              <option key={b.symbol} value={b.symbol}>
+                {b.name}
               </option>
             ))}
           </Select>
