@@ -301,6 +301,58 @@ export interface CsvImportResult {
   createdBrokers: number;
 }
 
+/* ------------------------------------------------ import din raportul brokerului */
+
+/** Ce s-a găsit în raportul ales, înainte de a salva ceva. */
+export interface BrokerImportPreview {
+  /** Identifică raportul citit, pentru pasul de import (fișierul nu se mai alege o dată). */
+  token: string;
+  fileName: string;
+  /** Brokerul la care se înregistrează tranzacțiile („XTB”, creat dacă lipsește). */
+  brokerName: string;
+  dateFrom: string;
+  dateTo: string;
+  /** Operațiunile recunoscute în raport și câte dintre ele au fost deja importate. */
+  totals: { buys: number; sells: number; dividends: number; alreadyImported: number };
+  /** Numărul de instrumente (acțiuni, ETF-uri) din raport. */
+  instruments: number;
+  /**
+   * Tranzacții introduse manual la acest broker pentru instrumentele din raport.
+   * Dacă există, utilizatorul alege dacă sunt înlocuite de cele din raport (altfel ar apărea de două ori).
+   */
+  manualCount: number;
+}
+
+export interface BrokerImportOptions {
+  /** Înlocuiește tranzacțiile introduse manual la broker cu cele din raport. */
+  replaceManual: boolean;
+}
+
+export interface BrokerImportResult {
+  brokerName: string;
+  imported: number;
+  buys: number;
+  sells: number;
+  dividends: number;
+  /** Operațiuni din raport care erau deja în aplicație (importate anterior). */
+  alreadyImported: number;
+  createdAssets: number;
+  /** Tranzacții introduse manual care au fost înlocuite. */
+  replaced: number;
+  /** Dividende a căror sumă a fost convertită aproximativ din moneda contului. */
+  approximated: number;
+  /** Pozițiile deținute la broker după import; `reportedQuantity` este cantitatea din raport, dacă apare. */
+  positions: { symbol: string; brokerSymbol: string; name: string; quantity: number; reportedQuantity: number | null }[];
+  /** Instrumente sărite: raportul nu conține toate cumpărările lor (perioadă incompletă sau split). */
+  incomplete: string[];
+  /** Active noi al căror simbol nu a fost găsit la furnizorul de prețuri (rămân evaluate la cost). */
+  unconfirmed: string[];
+  /** Operațiunile din raport care nu se importă (depuneri, dobânzi etc.). */
+  ignored: { label: string; count: number; symbols: string[] }[];
+  /** Simbolurile noi nu au putut fi verificate (fără internet). */
+  offline: boolean;
+}
+
 export interface PriceStatus {
   refreshing: boolean;
   offline: boolean;

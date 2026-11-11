@@ -112,7 +112,8 @@ function cleanInput(db: Db, userId: number, input: TransactionInput): { tx: Clea
   return { tx, asset };
 }
 
-function ledgerOf(db: Db, userId: number, assetId: number): LedgerTx[] {
+/** Toate tranzacțiile unui activ, în forma cerută de motorul de calcul. */
+export function ledgerOf(db: Db, userId: number, assetId: number): LedgerTx[] {
   const rows = db.prepare('SELECT * FROM transactions WHERE user_id = ? AND asset_id = ?').all(userId, assetId) as Record<
     string,
     unknown
@@ -192,12 +193,12 @@ export function listTransactions(db: Db, userId: number, filters: TransactionFil
   }));
 }
 
-function insert(db: Db, userId: number, tx: CleanTx, currency: string): number {
+function insert(db: Db, userId: number, tx: CleanTx, currency: string, externalId: string | null = null): number {
   const info = db
     .prepare(
       `INSERT INTO transactions (user_id, asset_id, broker_id, type, date, quantity, price, fee, currency,
-         gross_amount, tax_withheld, net_amount, split_numerator, split_denominator, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         gross_amount, tax_withheld, net_amount, split_numerator, split_denominator, notes, external_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
@@ -214,7 +215,8 @@ function insert(db: Db, userId: number, tx: CleanTx, currency: string): number {
       tx.netAmount,
       tx.splitNumerator,
       tx.splitDenominator,
-      tx.notes
+      tx.notes,
+      externalId
     );
   return Number(info.lastInsertRowid);
 }
@@ -321,16 +323,19 @@ export function addPurchase(db: Db, userId: number, input: PurchaseInput): { ass
   })();
 }
 
+/** O tranzacție de importat în bloc; `externalId` este identificatorul ei din raportul brokerului. */
+export type ImportedTransaction = TransactionInput & { externalId?: string | null };
+
 /**
- * Import în bloc (CSV): inserează toate tranzacțiile, apoi validează o singură
- * dată istoricul fiecărui activ atins. Trebuie apelată într-o tranzacție SQL —
- * dacă validarea eșuează, apelantul anulează tot importul.
+ * Import în bloc (raportul unui broker): inserează toate tranzacțiile, apoi
+ * validează o singură dată istoricul fiecărui activ atins. Trebuie apelată
+ * într-o tranzacție SQL — dacă validarea eșuează, apelantul anulează tot importul.
  */
-export function importTransactions(db: Db, userId: number, inputs: TransactionInput[]): number {
+export function importTransactions(db: Db, userId: number, inputs: ImportedTransaction[]): number {
   const touched = new Map<number, { asset: Asset; hasSplit: boolean }>();
   for (const input of inputs) {
     const { tx, asset } = cleanInput(db, userId, input);
-    insert(db, userId, tx, asset.currency);
+    insert(db, userId, tx, asset.currency, input.externalId ?? null);
     const entry = touched.get(asset.id) ?? { asset, hasSplit: false };
     entry.hasSplit ||= tx.type === 'split';
     touched.set(asset.id, entry);

@@ -24,6 +24,8 @@ export interface Quote {
   /** Momentul prețului (ISO). */
   asOf: string;
   name?: string | null;
+  /** Tipul instrumentului, dacă providerul îl cunoaște (folosit la importul din rapoartele brokerilor). */
+  assetType?: AssetType | null;
 }
 
 export interface HistoryResult {

@@ -10,8 +10,9 @@
  * Nu atinge datele reale ale utilizatorului (folosește PORTOFOLIU_DATA_DIR).
  */
 import { _electron as electron } from 'playwright-core';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { crc32 } from 'node:zlib';
 
 const outDir = resolve('.smoke');
 const dataDir = resolve(outDir, 'data');
@@ -48,6 +49,90 @@ const stubDialogs = (filePath) =>
     dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: path });
     dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [path] });
   }, filePath);
+/**
+ * Scrie un raport de cont în formatul exportat de xStation (XTB): un registru
+ * .xlsx cu foile „Open Positions” și „Cash Operations”, datele contului
+ * deasupra fiecărui tabel și coloanele Ticker / Category / Instrument.
+ * Arhiva ZIP este scrisă fără compresie, ca testul să nu aibă nevoie de dependențe.
+ */
+function writeXtbReport(path) {
+  const cell = (ref, v) =>
+    v === null ? '' : typeof v === 'number' ? `<c r="${ref}"><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t>${v}</t></is></c>`;
+  const sheet = (rows) =>
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+    rows.map((row, r) => (row ? `<row r="${r + 1}">${row.map((v, c) => cell(String.fromCharCode(65 + c) + (r + 1), v)).join('')}</row>` : '')).join('') +
+    '</sheetData></worksheet>';
+  const files = {
+    'xl/workbook.xml':
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="Open Positions" sheetId="1" r:id="rId1"/><sheet name="Cash Operations" sheetId="2" r:id="rId2"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels':
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': sheet([
+      ['Account number', 1234567],
+      ['Open Positions'],
+      ['Product', 'Metric', 'Amount', 'Currency'],
+      ['My Trades', 'Open position value', 1720, 'USD'],
+      ['Product', 'Instrument/Position', 'Ticker', 'Category', 'Type', 'Volume', 'Value', 'Current price', 'Open price', 'Open time (UTC)'],
+      // Un rând de total pe instrument, urmat de rândul fiecărei poziții.
+      ['My Trades', 'Apple', 'AAPL.US', 'STOCK', null, 2, 460, null, 200],
+      ['My Trades', '900001', 'AAPL.US', null, 'BUY', 2, 460, 230, 200, '03.02.2025 16:35:02'],
+      ['My Trades', 'Microsoft', 'MSFT.US', 'STOCK', null, 3, 1260, null, 400],
+      ['My Trades', '900002', 'MSFT.US', null, 'BUY', 3, 1260, 420, 400, '04.02.2025 16:40:10']
+    ]),
+    'xl/worksheets/sheet2.xml': sheet([
+      ['Account number', 1234567],
+      ['Cash Operations'],
+      ['Date from (UTC)', '01.01.2025 00:00:00'],
+      ['Date to (UTC)', '31.12.2025 23:59:59'],
+      null,
+      ['Type', 'Instrument', 'Ticker', 'Category', 'Time', 'Amount', 'ID', 'Comment', 'Product', 'Position ID'],
+      ['Deposit', null, null, null, '03.02.2025 09:00:00', 2500, '800000001', 'Deposit', 'My Trades'],
+      ['Stock purchase', 'Apple', 'AAPL.US', 'STOCK', '03.02.2025 16:35:02', -400, '800000002', 'OPEN BUY AAPL.US 2 @ 200.00', 'My Trades', '900001'],
+      ['Stock purchase', 'Microsoft', 'MSFT.US', 'STOCK', '04.02.2025 16:40:10', -1200, '800000003', 'OPEN BUY MSFT.US 3 @ 400.00', 'My Trades', '900002'],
+      ['DIVIDENT', 'Microsoft', 'MSFT.US', 'STOCK', '13.03.2025 11:00:00', 2.49, '800000004', 'MSFT.US USD 0.8300/ SHR', 'My Trades'],
+      ['Withholding Tax', 'Microsoft', 'MSFT.US', 'STOCK', '13.03.2025 11:00:00', -0.37, '800000005', 'MSFT.US USD WHT 15%', 'My Trades'],
+      ['Total', null, null, null, null, 902.12]
+    ])
+  };
+
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const [name, content] of Object.entries(files)) {
+    const data = Buffer.from(content, 'utf8');
+    const nameBuf = Buffer.from(name, 'utf8');
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc32(data), 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0);
+    entry.writeUInt16LE(20, 4);
+    entry.writeUInt16LE(20, 6);
+    entry.writeUInt32LE(crc32(data), 16);
+    entry.writeUInt32LE(data.length, 20);
+    entry.writeUInt32LE(data.length, 24);
+    entry.writeUInt16LE(nameBuf.length, 28);
+    entry.writeUInt32LE(offset, 42);
+    parts.push(local, nameBuf, data);
+    central.push(entry, nameBuf);
+    offset += 30 + nameBuf.length + data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(central.length / 2, 8);
+  end.writeUInt16LE(central.length / 2, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  writeFileSync(path, Buffer.concat([...parts, directory, end]));
+}
+
 const login = async (username, password, remember = false) => {
   await page.getByLabel('Nume utilizator').fill(username);
   await page.getByLabel('Parolă', { exact: true }).fill(password);
@@ -154,12 +239,42 @@ try {
 
   // 8. Import CSV: exportul demo conține și o vânzare SNP.RO care se adaugă la poziția Anei.
   await stubDialogs(csvFile);
-  await page.getByRole('button', { name: 'Import CSV' }).click();
+  await page.getByRole('button', { name: 'Import Excel / CSV' }).click();
   await page.getByText(/tranzacții importate/).waitFor();
   await page.waitForTimeout(500);
   rows = await page.locator('tbody tr').count();
   check(rows === demoRows + 1, `După import ar trebui ${demoRows + 1} tranzacții, sunt ${rows}.`);
   console.log(`import CSV: ${rows} tranzacții în contul ana`);
+
+  // 8b. Import din fișierul Excel exportat din xStation (XTB), cu același buton.
+  const xtbFile = resolve(outDir, 'USD_1234567_2025-01-01_2025-12-31.xlsx');
+  writeXtbReport(xtbFile);
+  await stubDialogs(xtbFile);
+  await page.getByRole('button', { name: 'Import Excel / CSV' }).click();
+  // AAPL are deja tranzacții introduse manual la XTB (din CSV): aplicația întreabă ce face cu ele.
+  await page.getByRole('heading', { name: 'Ai deja tranzacții introduse manual' }).waitFor({ timeout: 30000 });
+  await shot('14b-import-xtb-intrebare');
+  await page.getByRole('button', { name: 'Păstrează-le' }).click();
+  await page.getByRole('heading', { name: 'Import finalizat' }).waitFor();
+  await page.getByText('Am adăugat').waitFor();
+  check((await page.getByRole('dialog').getByRole('cell', { name: /MSFT/ }).count()) === 1, 'Poziția MSFT nu apare în rezumatul importului.');
+  await shot('14c-import-xtb-rezultat');
+  await page.getByRole('button', { name: 'Gata' }).click();
+  await page.getByRole('cell', { name: /MSFT/ }).first().waitFor();
+  rows = await page.locator('tbody tr').count();
+  check(rows === demoRows + 4, `După importul XTB ar trebui ${demoRows + 4} tranzacții, sunt ${rows}.`);
+  const dividend = page.locator('tbody tr', { hasText: 'MSFT' }).filter({ hasText: 'Dividend' });
+  check((await dividend.count()) === 1, 'Dividendul MSFT nu a fost importat.');
+  check((await dividend.first().innerText()).includes('0,37'), 'Impozitul reținut la dividendul MSFT lipsește.');
+
+  // Reimportul aceluiași fișier nu adaugă nimic.
+  await page.getByRole('button', { name: 'Import Excel / CSV' }).click();
+  await page.getByRole('button', { name: 'Păstrează-le' }).click();
+  await page.getByRole('heading', { name: 'Nimic nou de importat' }).waitFor();
+  await page.getByRole('button', { name: 'Gata' }).click();
+  rows = await page.locator('tbody tr').count();
+  check(rows === demoRows + 4, `Reimportul a dublat tranzacțiile: ${rows} în loc de ${demoRows + 4}.`);
+  console.log(`import XTB (Excel): 3 tranzacții noi, fără dubluri la reimport`);
 
   // 9. Restaurare din backup: datele Anei sunt înlocuite cu cele din backup-ul demo.
   await nav('Setări');

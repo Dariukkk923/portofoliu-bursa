@@ -330,6 +330,31 @@ export class PriceService {
     return [];
   }
 
+  /**
+   * Cotațiile mai multor simboluri dintr-o singură cerere (importul din raportul
+   * unui broker: confirmă simbolul, moneda și tipul fiecărui instrument nou).
+   * Se folosesc doar providerii care pot răspunde în bloc, ca să nu consumăm
+   * limita de cereri a planurilor gratuite. `offline` = niciun provider nu a răspuns.
+   */
+  async lookupMany(userId: number, symbols: string[]): Promise<{ quotes: Map<string, Quote>; offline: boolean }> {
+    const quotes = new Map<string, Quote>();
+    const refs: SymbolRef[] = [...new Set(symbols.map((s) => s.trim().toUpperCase()))].filter(Boolean).map((symbol) => ({ symbol, type: 'stock' }));
+    if (refs.length === 0) return { quotes, offline: false };
+    let answered = false;
+    for (const provider of this.providerChain(userId)) {
+      if (!provider.getQuotes) continue;
+      const missing = refs.filter((r) => !quotes.has(r.symbol));
+      if (missing.length === 0) break;
+      try {
+        for (const [symbol, quote] of await provider.getQuotes(missing)) quotes.set(symbol.toUpperCase(), quote);
+        answered = true;
+      } catch {
+        // încercăm următorul provider
+      }
+    }
+    return { quotes, offline: !answered };
+  }
+
   /** Cotația unui simbol (pentru completarea automată a monedei și a prețului în formular). */
   async lookup(userId: number, symbol: string, type: AssetType): Promise<SymbolQuote | null> {
     const ref: SymbolRef = { symbol: symbol.trim().toUpperCase(), type };

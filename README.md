@@ -4,6 +4,7 @@ Aplicație desktop pentru monitorizarea investițiilor la bursă: acțiuni, ETF-
 
 - Portofoliu pe total sau pe broker, cu profit realizat și nerealizat
 - Istoric de tranzacții: cumpărări, vânzări, dividende, cupoane, split-uri
+- Preluarea pozițiilor de la XTB direct din fișierul Excel exportat din xStation, fără introducere manuală
 - Dashboard cu evoluția valorii, alocări și clasamente
 - Prețuri actualizate automat (Yahoo Finance, fără cheie; opțional Alpha Vantage, Twelve Data, Polygon)
 - Mai mulți utilizatori pe același calculator, fiecare cu datele lui
@@ -79,6 +80,7 @@ Dacă apare o eroare despre FUSE, instalează pachetul `libfuse2` (Ubuntu/Debian
 1. **Brokeri** — adaugă brokerii la care ai conturi (XTB, Tradeville, Revolut, Binance etc.). Poți crea unul nou și direct din formularul de achiziție.
 2. **Portofoliu → Adaugă activ** — alege tipul, caută simbolul, completează unitățile, prețul, data, brokerul și comisionul. Fiecare achiziție este înregistrată automat ca tranzacție de tip *Cumpărare*.
 3. **Tranzacții** — aici adaugi vânzări, dividende, cupoane și split-uri, filtrezi, editezi și ștergi. Aplicația nu te lasă să vinzi mai mult decât deții la acel broker la data respectivă.
+   - Ai cont la **XTB**? Nu trebuie să introduci nimic de mână: apasă **Import Excel / CSV** și alege fișierul exportat din xStation (vezi [secțiunea 7](#7-preluarea-pozițiilor-de-la-xtb-fișier-excel)).
 4. **Panou principal** — valoarea totală, profitul, evoluția în timp, alocările. Filtrele de broker și de tip de activ din bara de sus se aplică întregului panou.
 
 **Formatul simbolurilor** (cel de pe Yahoo Finance):
@@ -131,9 +133,27 @@ Bine de știut:
 
 Aplicația este un instrument de evidență, nu de consultanță financiară sau fiscală.
 
-### 7. Import și export CSV
+### 7. Preluarea pozițiilor de la XTB (fișier Excel)
 
-Din pagina **Tranzacții** poți exporta istoricul (respectând filtrele active) și poți importa un fișier CSV. Coloanele (ordinea nu contează; obligatorii sunt `data`, `tip`, `simbol`):
+Dacă ai cont la XTB, pozițiile se preiau dintr-un fișier, în doi pași:
+
+1. În xStation, deschide istoricul contului și exportă-l în format **Excel** (.xlsx), pe perioada de la deschiderea contului până azi.
+2. În aplicație, apasă **Import Excel / CSV** (în pagina Portofoliu sau Tranzacții) și alege fișierul.
+
+Atât. Aplicația creează brokerul „XTB” (dacă nu există), activele și tranzacțiile — cumpărări, vânzări și dividende cu impozitul reținut — iar la final îți arată ce a importat și ce deții acum.
+
+- **Fără parolă, fără conexiune la cont.** XTB nu mai oferă acces automat (API-ul public a fost închis în martie 2025), așa că aplicația lucrează doar cu fișierul ales de tine. Nu ți se cere niciodată parola contului XTB, iar fișierul este citit local și nu este trimis nicăieri.
+- **Actualizare.** Când ai operațiuni noi, exportă din nou și importă: ce a fost deja preluat este recunoscut și nu se dublează. Poți exporta de fiecare dată toată perioada.
+- **Istoric incomplet.** Dacă raportul conține o vânzare fără cumpărarea ei (perioada exportată este prea scurtă), instrumentul respectiv este sărit și anunțat, iar restul se importă. Exportă pe toată perioada și importă din nou.
+- **Tranzacții introduse deja de mână.** Dacă ai trecut manual la XTB aceleași instrumente, aplicația te întreabă dacă le înlocuiește cu cele din raport (altfel ar apărea de două ori).
+- **Simboluri și monede.** Simbolurile XTB sunt traduse în formatul Yahoo Finance (`AAPL.US` → `AAPL`, `CSPX.UK` → `CSPX.L`), iar moneda și tipul (acțiune sau ETF) sunt confirmate la furnizorul de prețuri. Dacă un simbol nu este găsit, poziția rămâne evaluată la cost până introduci un preț manual.
+- **Dividende.** Raportul le dă în moneda contului; aplicația le trece în moneda activului (acțiuni deținute × dividend pe acțiune, verificat cu cursul din raport). Când suma nu poate fi calculată exact, este convertită aproximativ, iar tranzacția primește o notă.
+- **Ce nu se importă:** depunerile, retragerile, dobânzile, CFD-urile și comisioanele (sunt enumerate în rezumatul importului). Split-urile nu apar în raport: dacă o cantitate diferă de cea din xStation, adaugă split-ul din pagina Tranzacții.
+- Se acceptă și exportul vechi al xStation, în format CSV.
+
+### 8. Import și export CSV
+
+Din pagina **Tranzacții** poți exporta istoricul (respectând filtrele active) și îl poți importa înapoi cu același buton **Import Excel / CSV** — aplicația recunoaște singură tipul fișierului. Coloanele (ordinea nu contează; obligatorii sunt `data`, `tip`, `simbol`):
 
 ```
 data,tip,tip_activ,simbol,nume,broker,cantitate,pret,comision,moneda,suma_bruta,impozit,suma_neta,raport_split,note,valoare_nominala,rata_cupon,frecventa_cupon,data_scadenta
@@ -149,7 +169,7 @@ data,tip,tip_activ,simbol,nume,broker,cantitate,pret,comision,moneda,suma_bruta,
 
 Cel mai simplu mod de a obține un model este să exporți tranzacțiile din contul demo.
 
-### 8. Backup și unde stau datele
+### 9. Backup și unde stau datele
 
 **Setări → Backup și restaurare** salvează toate datele contului tău (brokeri, active, tranzacții, setări, prețuri) într-un singur fișier și le poate restaura, pe același calculator sau pe altul. Backup-ul nu conține parola și nici cheile API (acestea se reintroduc). Restaurarea înlocuiește datele contului curent; conturile celorlalți utilizatori nu sunt atinse.
 
@@ -199,17 +219,20 @@ src/
       valuation.ts        evaluare la prețul curent, totaluri, alocări, clasamente
       history.ts          reconstrucția evoluției valorii din tranzacții + prețuri istorice
       bonds.ts            cupoane
+    brokers/xtb.ts        interpretarea raportului de cont exportat din xStation (XTB)
     csv.ts, dates.ts, labels.ts
   main/                   procesul principal Electron (Node)
     index.ts              pornire, fereastră, meniu
     ipc.ts                sesiunea curentă + handlerele IPC (leagă interfața de servicii)
     db/                   deschiderea bazei și migrările de schemă
-    services/             conturi, brokeri, active, tranzacții, portofoliu, setări, CSV, backup, demo
+    services/             conturi, brokeri, active, tranzacții, portofoliu, setări, CSV, backup, demo,
+                          importul din raportul brokerului (brokerImport.ts)
     prices/               provideri de prețuri, cache, serviciul de actualizare
+    xlsx.ts               cititor minimal de fișiere Excel (.xlsx), fără dependențe
     secrets.ts, electronSecrets.ts   criptarea cheilor API și a tokenului de sesiune
   preload/index.ts        puntea securizată dintre interfață și procesul principal
   renderer/               interfața React (pagini, componente, context)
-tests/                    teste Vitest (calcul, servicii pe SQLite în memorie, prețuri, CSV)
+tests/                    teste Vitest (calcul, servicii pe SQLite în memorie, prețuri, CSV, import XTB)
 scripts/                  test de fum (Playwright) și generatorul de iconiță
 .github/workflows/        CI și publicarea installerelor
 electron-builder.yml      configurarea împachetării
@@ -222,6 +245,8 @@ electron-builder.yml      configurarea împachetării
 - **Modulul de calcul** (`src/shared/calc`) nu depinde de bază sau de Electron. Pozițiile nu sunt stocate: se recalculează de fiecare dată din tranzacții, deci schimbarea metodei (cost mediu ↔ FIFO) sau editarea unei tranzacții vechi nu lasă date inconsistente.
 - **Prețuri.** `prices/provider.ts` definește interfața `PriceProvider` (`getQuote`, `getHistory`, `search`). `prices/service.ts` construiește lanțul de provideri al utilizatorului, cere doar simbolurile al căror cache a expirat, trece la următorul provider la eroare și scrie rezultatele în tabelele `prices` și `price_history`. Aplicația citește mereu din aceste tabele, de aceea funcționează și offline.
   - *Provider nou:* implementează `PriceProvider`, adaugă id-ul în `ProviderId`/`PROVIDER_IDS` (`shared/types.ts`), eticheta în `shared/labels.ts` și construcția lui în `PriceService`.
+- **Import de la broker (XTB).** XTB nu are API public, deci sursa este fișierul exportat din xStation. `main/xlsx.ts` citește registrul Excel (arhivă ZIP + XML), `shared/brokers/xtb.ts` (pur, testat) găsește tabelul operațiunilor de numerar și clasifică rândurile după comentariu („OPEN BUY 3 @ 400.00”, „MSFT.US USD 0.8300/ SHR”, „… WHT 15%”), care are aceeași formă în toate limbile, iar `main/services/brokerImport.ts` le transformă în tranzacții. Fiecare tranzacție importată păstrează identificatorul operațiunii (`transactions.external_id`, unic pe utilizator), de aceea reimportul nu dublează nimic; legătura simbol XTB → activ se ține în `broker_symbols`.
+  - *Broker nou:* un modul de interpretare în `shared/brokers/`, un serviciu după modelul `brokerImport.ts` și recunoașterea fișierului în `brokerImport.open` (`main/ipc.ts`).
 - **Migrări.** `main/db/migrations.ts` conține lista de migrări, aplicate în ordine la pornire; versiunea se ține în `PRAGMA user_version`. Pentru o schimbare de schemă adaugi o intrare nouă la finalul listei (nu modifici una publicată).
 
 ### Teste
@@ -230,7 +255,8 @@ electron-builder.yml      configurarea împachetării
 
 - `tests/engine.test.ts`, `valuation.test.ts`, `history.test.ts` — modulul de calcul: cumpărări multiple, vânzări parțiale (cost mediu și FIFO), split-uri, dividende, cupoane, crypto cu zecimale, mai mulți brokeri, monede diferite, evoluția istorică;
 - `tests/services.test.ts` — serviciile pe o bază SQLite în memorie: conturi, izolarea datelor, validări, portofoliu evaluat, CSV, backup/restaurare, contul demo;
-- `tests/prices.test.ts` — actualizarea prețurilor cu provideri simulați: rezervă între provideri, cache, mod offline, preț manual.
+- `tests/prices.test.ts` — actualizarea prețurilor cu provideri simulați: rezervă între provideri, cache, mod offline, preț manual;
+- `tests/brokerImport.test.ts` — importul din raportul XTB: citirea fișierelor .xlsx, interpretarea raportului (Excel și CSV), dividende în moneda activului, reimport fără dubluri, istoric incomplet, tranzacții manuale, backup, migrarea schemei.
 
 `npm run smoke` pornește aplicația construită cu un folder de date temporar și parcurge ecranele principale. Cu `SMOKE_EXE="release/win-unpacked/Portofoliu Bursa.exe"` testează aplicația împachetată.
 

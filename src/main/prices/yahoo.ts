@@ -58,7 +58,8 @@ export class YahooProvider implements PriceProvider {
       symbol: String(q.symbol).toUpperCase(),
       ...toMajorUnits(price, q.currency),
       asOf: time.toISOString(),
-      name: q.longName ?? q.shortName ?? null
+      name: q.longName ?? q.shortName ?? null,
+      assetType: QUOTE_TYPES[String(q.quoteType ?? '')] ?? null
     };
   }
 

@@ -7,8 +7,9 @@
  * unul primit de la interfață. Așa se garantează izolarea datelor pe utilizator.
  */
 import { app, dialog, ipcMain, type BrowserWindow } from 'electron';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { IPC_CALL, IPC_EVENT, type Api, type AppEvent, type IpcResult } from '@shared/api';
 import type { RefreshResult, User } from '@shared/types';
 import { todayIso } from '@shared/dates';
@@ -21,10 +22,12 @@ import * as assets from './services/assets';
 import * as transactions from './services/transactions';
 import * as portfolio from './services/portfolio';
 import * as settings from './services/settings';
-import { exportTransactionsCsv, importTransactionsCsv } from './services/csvio';
+import { exportTransactionsCsv, importTransactionsCsv, looksLikeTransactionsCsv } from './services/csvio';
 import { createBackup, restoreBackup } from './services/backup';
+import { applyXtbImport, previewXtbImport, readXtbFile, type XtbImportSession } from './services/brokerImport';
 import { ensureDemoAccount } from './services/demo';
 import { PriceService } from './prices/service';
+import { looksLikeZip } from './xlsx';
 
 export interface IpcContext {
   db: Db;
@@ -40,6 +43,8 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
 
   let currentUserId: number | null = null;
   let refreshTimer: NodeJS.Timeout | null = null;
+  /** Raportul de la broker citit la previzualizare, păstrat până la import (unul singur, al utilizatorului curent). */
+  let pendingImport: { token: string; userId: number; session: XtbImportSession } | null = null;
 
   const send = (event: AppEvent): void => {
     const win = ctx.getWindow();
@@ -112,6 +117,7 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
   };
 
   const closeSession = (): void => {
+    pendingImport = null;
     stopAutoRefresh();
     clearToken();
     currentUserId = null;
@@ -208,14 +214,6 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
         const { csv, count } = exportTransactionsCsv(db, userId, filters ?? {});
         writeFileSync(path, csv, 'utf8');
         return { canceled: false, path, count };
-      },
-      async importCsv() {
-        const userId = uid();
-        const path = await openDialog('Importă tranzacții din CSV', [{ name: 'CSV', extensions: ['csv', 'txt'] }]);
-        if (!path) return { canceled: true };
-        const result = importTransactionsCsv(db, userId, readFileSync(path, 'utf8'));
-        if (result.imported > 0) void refreshPrices(false).catch(() => undefined);
-        return { canceled: false, result };
       }
     },
     settings: {
@@ -238,6 +236,48 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
       status: async () => prices.status(uid()),
       search: async (query) => prices.search(uid(), String(query ?? '')),
       lookup: async (symbol, type) => prices.lookup(uid(), String(symbol ?? ''), type)
+    },
+    brokerImport: {
+      async open() {
+        const userId = uid();
+        const path = await openDialog('Alege fișierul de importat', [
+          { name: 'Raport XTB (Excel) sau fișier CSV', extensions: ['xlsx', 'csv', 'txt'] }
+        ]);
+        if (!path) return { canceled: true };
+        // Fișierul este citit local; nu este trimis nicăieri și nu este păstrat după import.
+        const data = readFileSync(path);
+
+        // Un CSV exportat din aplicație (pagina Tranzacții) se importă direct.
+        if (!looksLikeZip(data)) {
+          const text = data.toString('utf8');
+          if (looksLikeTransactionsCsv(text)) {
+            const csv = importTransactionsCsv(db, userId, text);
+            if (csv.imported > 0) void refreshPrices(false).catch(() => undefined);
+            return { canceled: false, csv };
+          }
+        }
+
+        // Altfel este raportul exportat din xStation (XTB).
+        const fileName = basename(path);
+        const report = readXtbFile(data, fileName);
+        const token = randomBytes(16).toString('hex');
+        const { preview, session } = await previewXtbImport(db, userId, report, fileName, token, (symbols) =>
+          prices.lookupMany(userId, symbols)
+        );
+        pendingImport = { token, userId, session };
+        return { canceled: false, preview };
+      },
+      async apply(token, options) {
+        const userId = uid();
+        if (!pendingImport || pendingImport.token !== token || pendingImport.userId !== userId) {
+          throw new AppError('Raportul nu mai este disponibil. Alege din nou fișierul.');
+        }
+        const result = applyXtbImport(db, userId, pendingImport.session, options);
+        pendingImport = null;
+        // Instrumentele noi au nevoie de prețuri și de istoric: le aducem în fundal.
+        if (result.imported > 0) void refreshPrices(false).catch(() => undefined);
+        return result;
+      }
     },
     backup: {
       async create() {

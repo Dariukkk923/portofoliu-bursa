@@ -1,12 +1,11 @@
 /** Istoricul tranzacțiilor: tabel cu filtre, adăugare, editare, ștergere, import și export CSV. */
 import { useState } from 'react';
-import { ArrowLeftRight, FileDown, FileUp, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, FileDown, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import {
   ASSET_TYPES,
   TRANSACTION_TYPES,
   type Asset,
   type AssetType,
-  type CsvImportResult,
   type TransactionFilters,
   type TransactionType,
   type TransactionView
@@ -17,7 +16,8 @@ import { api, errorMessage } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
 import { date as fmtDate, money, price as fmtPrice, quantity as fmtQuantity } from '../lib/format';
 import { TransactionForm } from '../components/TransactionForm';
-import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Input, Modal, Notice, Select, Spinner, TD, TH, cx } from '../components/ui';
+import { ImportButton } from '../components/ImportButton';
+import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Input, Notice, Select, Spinner, TD, TH, cx } from '../components/ui';
 
 const TYPE_TONE: Record<TransactionType, 'accent' | 'warn' | 'gain' | 'neutral'> = {
   buy: 'accent',
@@ -36,12 +36,11 @@ function amountOf(t: TransactionView, asset: Asset | undefined): string {
 }
 
 export function TransactionsPage() {
-  const { brokers, dataVersion, bumpData, reloadBrokers, notify } = useApp();
+  const { brokers, dataVersion, bumpData, notify } = useApp();
   const [filters, setFilters] = useState<TransactionFilters>({});
   const [form, setForm] = useState<{ initial: TransactionView | null } | null>(null);
   const [deleting, setDeleting] = useState<TransactionView | null>(null);
-  const [importResult, setImportResult] = useState<CsvImportResult | null>(null);
-  const [busy, setBusy] = useState<'delete' | 'import' | 'export' | null>(null);
+  const [busy, setBusy] = useState<'delete' | 'export' | null>(null);
 
   const list = useLoad(() => api.transactions.list(filters), [filters, dataVersion]);
   const assets = useLoad(() => api.assets.list(), [dataVersion]);
@@ -73,25 +72,6 @@ export function TransactionsPage() {
     try {
       const res = await api.transactions.exportCsv(filters);
       if (!res.canceled) notify('success', `${res.count} tranzacții exportate în ${res.path}.`);
-    } catch (err) {
-      notify('error', errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const importCsv = async (): Promise<void> => {
-    setBusy('import');
-    try {
-      const res = await api.transactions.importCsv();
-      if (res.canceled || !res.result) return;
-      if (res.result.errors.length > 0) {
-        setImportResult(res.result);
-      } else {
-        notify('success', `${res.result.imported} tranzacții importate.`);
-        await reloadBrokers();
-        bumpData();
-      }
     } catch (err) {
       notify('error', errorMessage(err));
     } finally {
@@ -154,9 +134,7 @@ export function TransactionsPage() {
         )}
 
         <div className="ml-auto flex gap-2">
-          <Button icon={<FileUp className="size-4" />} loading={busy === 'import'} onClick={() => void importCsv()}>
-            Import CSV
-          </Button>
+          <ImportButton />
           <Button icon={<FileDown className="size-4" />} loading={busy === 'export'} disabled={rows.length === 0} onClick={() => void exportCsv()}>
             Export CSV
           </Button>
@@ -177,7 +155,7 @@ export function TransactionsPage() {
           <EmptyState
             icon={<ArrowLeftRight className="size-5" />}
             title={hasFilters ? 'Nicio tranzacție pentru filtrele alese' : 'Nicio tranzacție încă'}
-            text={hasFilters ? 'Schimbă sau resetează filtrele.' : 'Achizițiile adăugate în pagina Portofoliu apar aici automat. Tot aici înregistrezi vânzări, dividende, cupoane și split-uri sau imporți un fișier CSV.'}
+            text={hasFilters ? 'Schimbă sau resetează filtrele.' : 'Achizițiile adăugate în pagina Portofoliu apar aici automat. Tot aici înregistrezi vânzări, dividende, cupoane și split-uri sau imporți fișierul Excel exportat din xStation (XTB).'}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -267,18 +245,6 @@ export function TransactionsPage() {
           onConfirm={() => void remove()}
           onCancel={() => setDeleting(null)}
         />
-      )}
-      {importResult && (
-        <Modal title="Importul nu a fost efectuat" onClose={() => setImportResult(null)} footer={<Button onClick={() => setImportResult(null)}>Închide</Button>}>
-          <p className="mb-3 text-[13px] text-ink-2">Fișierul conține erori, așa că nu a fost salvată nicio tranzacție. Corectează rândurile de mai jos și încearcă din nou.</p>
-          <ul className="max-h-72 space-y-1.5 overflow-y-auto text-[13px]">
-            {importResult.errors.map((e, i) => (
-              <li key={i} className="rounded-md bg-loss-soft px-3 py-1.5 text-ink">
-                <strong>Rândul {e.line}:</strong> {e.message}
-              </li>
-            ))}
-          </ul>
-        </Modal>
       )}
     </>
   );

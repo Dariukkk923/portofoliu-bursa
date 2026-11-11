@@ -9,6 +9,7 @@ import { date as fmtDate, money, price as fmtPrice, quantity as fmtQuantity, sig
 import { AssetForm } from '../components/AssetForm';
 import { PurchaseForm } from '../components/PurchaseForm';
 import { TransactionForm } from '../components/TransactionForm';
+import { ImportButton } from '../components/ImportButton';
 import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Notice, Pnl, Segmented, Spinner, TD, TH, cx } from '../components/ui';
 
 type View = 'aggregated' | 'byBroker';
@@ -85,9 +86,12 @@ export function PositionsPage() {
             {signedMoney(o.totals.unrealized, base)}
           </Pnl>
         </p>
-        <Button variant="primary" className="ml-auto" icon={<Plus className="size-4" />} onClick={() => setPurchase(true)}>
-          Adaugă activ
-        </Button>
+        <div className="ml-auto flex gap-2">
+          <ImportButton />
+          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setPurchase(true)}>
+            Adaugă activ
+          </Button>
+        </div>
       </div>
 
       {o.missingPrices.length > 0 && (
@@ -101,11 +105,14 @@ export function PositionsPage() {
           <EmptyState
             icon={<Wallet className="size-5" />}
             title="Nicio poziție deschisă"
-            text="Adaugă un activ cumpărat: tip, simbol, număr de unități, preț, dată și broker. Fiecare achiziție apare automat și în istoricul tranzacțiilor."
+            text="Adaugă un activ cumpărat: tip, simbol, număr de unități, preț, dată și broker. Dacă ai cont la XTB, alege fișierul Excel exportat din xStation și pozițiile apar singure."
             action={
-              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setPurchase(true)}>
-                Adaugă activ
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setPurchase(true)}>
+                  Adaugă activ
+                </Button>
+                <ImportButton />
+              </div>
             }
           />
         ) : (

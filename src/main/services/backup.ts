@@ -19,7 +19,7 @@ import { AppError, assert } from './common';
 
 const APP_MARKER = 'portofoliu-bursa';
 /** Tabelele cu datele utilizatorului, în ordinea în care pot fi inserate (respectă cheile străine). */
-const USER_TABLES = ['brokers', 'assets', 'transactions', 'prices', 'price_history', 'history_sync'] as const;
+const USER_TABLES = ['brokers', 'assets', 'transactions', 'broker_symbols', 'prices', 'price_history', 'history_sync'] as const;
 
 type Row = Record<string, unknown>;
 
@@ -107,7 +107,7 @@ export function restoreBackup(
     const counts = { brokers: 0, assets: 0, transactions: 0 };
     db.transaction(() => {
       // 1. Ștergem datele actuale ale utilizatorului (tranzacțiile întâi, din cauza cheilor străine).
-      for (const table of ['transactions', 'assets', 'brokers', 'prices', 'price_history', 'history_sync']) {
+      for (const table of ['transactions', 'broker_symbols', 'assets', 'brokers', 'prices', 'price_history', 'history_sync']) {
         db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
       }
 
@@ -132,6 +132,12 @@ export function restoreBackup(
           broker_id: row.broker_id == null ? null : (brokerIds.get(row.broker_id as number) ?? null)
         });
         counts.transactions++;
+      }
+
+      // Corespondențele dintre simbolurile brokerului și active (pentru importurile viitoare).
+      for (const row of read('broker_symbols')) {
+        const assetId = assetIds.get(row.asset_id as number);
+        if (assetId !== undefined) insertRow(db, 'broker_symbols', { ...row, user_id: userId, asset_id: assetId });
       }
 
       // 4. Prețurile salvate (ca graficele să funcționeze și fără internet).

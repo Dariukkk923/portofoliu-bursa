@@ -11,6 +11,9 @@ import type {
   AssetType,
   AssetUpdate,
   Broker,
+  BrokerImportOptions,
+  BrokerImportPreview,
+  BrokerImportResult,
   CsvImportResult,
   FileResult,
   HistoryPoint,
@@ -65,8 +68,6 @@ export interface Api {
     remove(id: number): Promise<void>;
     /** Deschide dialogul de salvare și scrie fișierul CSV. */
     exportCsv(filters: TransactionFilters): Promise<FileResult>;
-    /** Deschide dialogul de alegere a fișierului și importă tranzacțiile. */
-    importCsv(): Promise<{ canceled: boolean; result?: CsvImportResult }>;
   };
   settings: {
     get(): Promise<Settings>;
@@ -79,6 +80,18 @@ export interface Api {
     status(): Promise<PriceStatus>;
     search(query: string): Promise<SymbolSearchResult[]>;
     lookup(symbol: string, type: AssetType): Promise<SymbolQuote | null>;
+  };
+  brokerImport: {
+    /**
+     * Deschide dialogul de alegere a fișierului de importat și îi recunoaște tipul:
+     *  - raportul exportat din xStation (XTB), Excel sau CSV: întoarce `preview`
+     *    (ce s-a găsit), fără să salveze nimic — urmează `apply`;
+     *  - un CSV exportat din această aplicație: îl importă direct și întoarce `csv`.
+     * Aplicația nu se conectează la contul de la broker: lucrează doar cu fișierul ales.
+     */
+    open(): Promise<{ canceled: boolean; preview?: BrokerImportPreview; csv?: CsvImportResult }>;
+    /** Salvează tranzacțiile din raportul XTB citit la `open`. */
+    apply(token: string, options: BrokerImportOptions): Promise<BrokerImportResult>;
   };
   backup: {
     create(): Promise<FileResult>;

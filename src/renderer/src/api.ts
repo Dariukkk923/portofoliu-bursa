@@ -31,6 +31,7 @@ export const api: Api = {
   transactions: group('transactions'),
   settings: group('settings'),
   prices: group('prices'),
+  brokerImport: group('brokerImport'),
   backup: group('backup'),
   app: group('app')
 };

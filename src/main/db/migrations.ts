@@ -140,6 +140,26 @@ export const MIGRATIONS: Migration[] = [
         PRIMARY KEY (user_id, symbol)
       ) WITHOUT ROWID;
     `
+  },
+  {
+    version: 2,
+    name: 'import din rapoartele brokerilor',
+    sql: `
+      -- Identificatorul operațiunii în raportul brokerului (ex.: „xtb:530692719”).
+      -- Reimportul aceluiași raport nu dublează tranzacțiile deja preluate.
+      ALTER TABLE transactions ADD COLUMN external_id TEXT;
+      CREATE UNIQUE INDEX idx_tx_external ON transactions (user_id, external_id) WHERE external_id IS NOT NULL;
+
+      -- Corespondența dintre simbolul folosit de broker (ex.: „CSPX.UK”) și activul din aplicație,
+      -- reținută ca la următorul import să nu mai fie nevoie de nicio alegere.
+      CREATE TABLE broker_symbols (
+        user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        source        TEXT NOT NULL,
+        broker_symbol TEXT NOT NULL,
+        asset_id      INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        PRIMARY KEY (user_id, source, broker_symbol)
+      ) WITHOUT ROWID;
+    `
   }
 ];
 

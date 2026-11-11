@@ -55,6 +55,15 @@ export function exportTransactionsCsv(db: Db, userId: number, filters: Transacti
   return { csv: '﻿' + toCsv(rows), count: txs.length };
 }
 
+/**
+ * True dacă textul este un CSV în formatul aplicației (antet cu „data”, „tip”,
+ * „simbol”). Raportul CSV al XTB are altă structură și o coloană „ID”.
+ */
+export function looksLikeTransactionsCsv(text: string): boolean {
+  const header = (parseCsv(text.slice(0, 4000))[0] ?? []).map(normalizeKey);
+  return ['data', 'tip', 'simbol'].every((c) => header.includes(c)) && !header.includes('id');
+}
+
 interface PendingRow {
   line: number;
   date: string;
