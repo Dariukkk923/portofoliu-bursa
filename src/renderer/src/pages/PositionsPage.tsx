@@ -1,0 +1,242 @@
+/** Pagina Portofoliu: pozițiile deschise (agregat sau pe broker), adăugare de active, vânzare, editare. */
+import { useState } from 'react';
+import { ArrowLeftRight, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
+import type { Asset, PositionView, TransactionType } from '@shared/types';
+import { ASSET_TYPE_LABEL } from '@shared/labels';
+import { api, errorMessage } from '../api';
+import { useApp, useLoad } from '../context/AppContext';
+import { date as fmtDate, money, price as fmtPrice, quantity as fmtQuantity, signedMoney, signedPercent } from '../lib/format';
+import { AssetForm } from '../components/AssetForm';
+import { PurchaseForm } from '../components/PurchaseForm';
+import { TransactionForm } from '../components/TransactionForm';
+import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Notice, Pnl, Segmented, Spinner, TD, TH, cx } from '../components/ui';
+
+type View = 'aggregated' | 'byBroker';
+
+/** Prețul afișat: procent pentru obligațiuni, altfel valoare în moneda activului. */
+const showPrice = (p: PositionView, value: number | null): string => (value === null ? '—' : p.assetType === 'bond' ? `${fmtPrice(value)}%` : fmtPrice(value));
+
+/** Eticheta care explică de unde vine prețul curent, când nu este un preț din API. */
+function PriceSource({ p }: { p: PositionView }) {
+  if (p.priceSource === 'manual') return <span title={`Preț introdus manual${p.priceAsOf ? ` la ${fmtDate(p.priceAsOf)}` : ''}`}><Badge tone="accent">manual</Badge></span>;
+  if (p.priceSource === 'cost') return <span title="Nu există un preț disponibil; poziția este evaluată la cost."><Badge tone="warn">la cost</Badge></span>;
+  return null;
+}
+
+export function PositionsPage() {
+  const { filter, dataVersion, bumpData, notify } = useApp();
+  const [view, setView] = useState<View>('aggregated');
+  const [purchase, setPurchase] = useState(false);
+  const [txPreset, setTxPreset] = useState<{ type: TransactionType; assetId: number; brokerId?: number | null } | null>(null);
+  const [editing, setEditing] = useState<Asset | null>(null);
+  const [deleting, setDeleting] = useState<Asset | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const overview = useLoad(() => api.portfolio.overview(filter), [filter, dataVersion]);
+  const assets = useLoad(() => api.assets.list(), [dataVersion]);
+  const o = overview.data;
+  const assetList = assets.data ?? [];
+  const assetOf = (id: number): Asset | undefined => assetList.find((a) => a.id === id);
+
+  const afterSave = (): void => {
+    setPurchase(false);
+    setTxPreset(null);
+    setEditing(null);
+    bumpData();
+  };
+
+  const removeAsset = async (): Promise<void> => {
+    if (!deleting) return;
+    setBusy(true);
+    try {
+      await api.assets.remove(deleting.id);
+      notify('success', `${deleting.symbol} și tranzacțiile lui au fost șterse.`);
+      setDeleting(null);
+      bumpData();
+    } catch (err) {
+      notify('error', errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!o) {
+    return overview.error ? <Notice tone="loss">{overview.error}</Notice> : <div className="flex justify-center py-20"><Spinner className="size-7" /></div>;
+  }
+
+  const base = o.totals.baseCurrency;
+  const rows = view === 'aggregated' ? o.aggregated : o.positions;
+  const byBroker = view === 'byBroker';
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-3">
+        <Segmented
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'aggregated', label: 'Total pe activ' },
+            { value: 'byBroker', label: 'Pe broker' }
+          ]}
+        />
+        <p className="text-[13px] text-ink-2">
+          {rows.length} {rows.length === 1 ? 'poziție' : 'poziții'} · valoare <strong className="tabular text-ink">{money(o.totals.totalValue, base)}</strong> · nerealizat{' '}
+          <Pnl value={o.totals.unrealized} className="font-semibold">
+            {signedMoney(o.totals.unrealized, base)}
+          </Pnl>
+        </p>
+        <Button variant="primary" className="ml-auto" icon={<Plus className="size-4" />} onClick={() => setPurchase(true)}>
+          Adaugă activ
+        </Button>
+      </div>
+
+      {o.missingPrices.length > 0 && (
+        <Notice tone="warn">
+          Fără preț de piață pentru <strong>{o.missingPrices.join(', ')}</strong>. Apasă pe creion pentru a introduce un preț manual.
+        </Notice>
+      )}
+
+      <Card padded={false}>
+        {rows.length === 0 ? (
+          <EmptyState
+            icon={<Wallet className="size-5" />}
+            title="Nicio poziție deschisă"
+            text="Adaugă un activ cumpărat: tip, simbol, număr de unități, preț, dată și broker. Fiecare achiziție apare automat și în istoricul tranzacțiilor."
+            action={
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setPurchase(true)}>
+                Adaugă activ
+              </Button>
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-line">
+                  <th className={TH}>Activ</th>
+                  {byBroker && <th className={TH}>Broker</th>}
+                  <th className={cx(TH, 'text-right')}>Cantitate</th>
+                  <th className={cx(TH, 'text-right')}>Preț mediu</th>
+                  <th className={cx(TH, 'text-right')}>Preț curent</th>
+                  <th className={cx(TH, 'text-right')}>Valoare de piață</th>
+                  <th className={cx(TH, 'text-right')}>Profit / pierdere</th>
+                  <th className={cx(TH, 'text-right')}>Realizat</th>
+                  <th className={TH} aria-label="Acțiuni" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((p) => {
+                  const asset = assetOf(p.assetId);
+                  const realized = p.realizedPnl + p.income;
+                  return (
+                    <tr key={p.key} className="border-b border-line last:border-0 hover:bg-surface-2/60">
+                      <td className={TD}>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{p.symbol}</span>
+                          <Badge>{ASSET_TYPE_LABEL[p.assetType]}</Badge>
+                        </div>
+                        <div className="max-w-48 truncate text-xs text-ink-3" title={p.name}>{p.name || '—'}</div>
+                      </td>
+                      {byBroker && <td className={TD}>{p.brokerName}</td>}
+                      <td className={cx(TD, 'tabular text-right')}>{fmtQuantity(p.quantity)}</td>
+                      <td className={cx(TD, 'tabular text-right')}>{showPrice(p, p.avgPrice)}</td>
+                      <td className={cx(TD, 'tabular text-right')}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <PriceSource p={p} />
+                          {showPrice(p, p.price)}
+                        </div>
+                      </td>
+                      <td className={cx(TD, 'tabular text-right')}>
+                        <div className="font-medium">{money(p.marketValue, p.currency)}</div>
+                        {p.currency !== base && <div className="text-xs text-ink-3">{money(p.marketValueBase, base)}</div>}
+                      </td>
+                      <td className={cx(TD, 'text-right')}>
+                        <div>
+                          <Pnl value={p.unrealizedPnl} className="font-medium">
+                            {signedMoney(p.unrealizedPnl, p.currency)}
+                          </Pnl>
+                        </div>
+                        <Pnl value={p.unrealizedPct} arrow className="text-xs">
+                          {signedPercent(p.unrealizedPct)}
+                        </Pnl>
+                      </td>
+                      <td className={cx(TD, 'text-right')}>
+                        <Pnl value={realized}>{Math.abs(realized) < 0.005 ? '—' : signedMoney(realized, p.currency)}</Pnl>
+                      </td>
+                      <td className={cx(TD, 'text-right')}>
+                        <div className="flex justify-end">
+                          <IconButton label={`Vinde ${p.symbol}`} onClick={() => setTxPreset({ type: 'sell', assetId: p.assetId, brokerId: p.brokerId ?? undefined })}>
+                            <ArrowLeftRight className="size-4" />
+                          </IconButton>
+                          <IconButton label={`Editează ${p.symbol} (preț manual, detalii)`} disabled={!asset} onClick={() => asset && setEditing(asset)}>
+                            <Pencil className="size-4" />
+                          </IconButton>
+                          <IconButton label={`Șterge ${p.symbol}`} disabled={!asset} onClick={() => asset && setDeleting(asset)}>
+                            <Trash2 className="size-4" />
+                          </IconButton>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {o.closed.length > 0 && (
+        <Card title="Poziții închise" padded={false}>
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-line">
+                <th className={TH}>Activ</th>
+                <th className={cx(TH, 'text-right')}>Total cumpărat</th>
+                <th className={cx(TH, 'text-right')}>Profit din vânzări</th>
+                <th className={cx(TH, 'text-right')}>Dividende / cupoane</th>
+                <th className={cx(TH, 'text-right')}>Profit realizat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {o.closed.map((p) => (
+                <tr key={p.key} className="border-b border-line last:border-0">
+                  <td className={TD}>
+                    <span className="font-semibold">{p.symbol}</span> <span className="text-ink-3">{p.name}</span>
+                  </td>
+                  <td className={cx(TD, 'tabular text-right')}>{money(p.totalBought, p.currency)}</td>
+                  <td className={cx(TD, 'text-right')}>
+                    <Pnl value={p.realizedPnl}>{signedMoney(p.realizedPnl, p.currency)}</Pnl>
+                  </td>
+                  <td className={cx(TD, 'tabular text-right')}>{money(p.income, p.currency)}</td>
+                  <td className={cx(TD, 'text-right')}>
+                    <Pnl value={p.realizedPnl + p.income} className="font-medium">
+                      {signedMoney(p.realizedPnl + p.income, p.currency)}
+                    </Pnl>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {purchase && <PurchaseForm assets={assetList} onClose={() => setPurchase(false)} onSaved={afterSave} />}
+      {txPreset && <TransactionForm assets={assetList} initial={null} preset={txPreset} onClose={() => setTxPreset(null)} onSaved={afterSave} />}
+      {editing && <AssetForm asset={editing} onClose={() => setEditing(null)} onSaved={afterSave} />}
+      {deleting && (
+        <ConfirmDialog
+          title={`Ștergi ${deleting.symbol}?`}
+          message={
+            <>
+              Activul <strong className="text-ink">{deleting.symbol}</strong> va fi șters împreună cu <strong className="text-ink">toate tranzacțiile lui</strong> (cumpărări, vânzări, dividende). Operațiunea nu poate fi anulată.
+            </>
+          }
+          confirmLabel="Șterge activul"
+          busy={busy}
+          onConfirm={() => void removeAsset()}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
+    </>
+  );
+}

@@ -1,0 +1,89 @@
+# Configurarea împachetării (electron-builder).
+# Installerele rezultă în folderul release/: NSIS (.exe) pentru Windows,
+# .dmg pentru macOS și AppImage pentru Linux.
+appId: ro.portofoliubursa.app
+productName: Portofoliu Bursa
+copyright: Portofoliu Bursa
+
+directories:
+  output: release
+  buildResources: build
+
+# În pachet intră doar codul construit (out/) și dependențele de rulare.
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+  # better-sqlite3: la rulare sunt necesare doar lib/ și binarul din prebuilds/
+  - "!node_modules/better-sqlite3/deps/**"
+  - "!node_modules/better-sqlite3/src/**"
+  - "!node_modules/better-sqlite3/binding.gyp"
+
+# Binarele native nu pot fi încărcate din arhiva asar.
+asarUnpack:
+  - "**/*.node"
+
+# better-sqlite3 (>= 13) vine cu binare N-API precompilate pentru toate
+# platformele, compatibile direct cu Electron: nu este nevoie de recompilare.
+npmRebuild: false
+
+# Păstrăm doar limbile folosite (interfața este în română).
+electronLanguages:
+  - ro
+  - en-US
+
+# Publicarea în GitHub Releases o face workflow-ul din .github/workflows/release.yml.
+publish: null
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  files:
+    - "!node_modules/better-sqlite3/prebuilds/{darwin,linux,linuxmusl}-*"
+    - "!node_modules/better-sqlite3/prebuilds/win32-arm64.node"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Portofoliu Bursa
+  installerLanguages: [ro_RO, en_US]
+  language: "1048" # româna
+  # Fișierul de limbă românesc al NSIS nu are toate textele (pagina „pentru mine / pentru toți
+  # utilizatorii”); pentru ele se folosește engleza, fără ca avertismentul să oprească build-ul.
+  warningsAsErrors: false
+  artifactName: Portofoliu-Bursa-Setup-${version}.${ext}
+  # La dezinstalare, datele utilizatorilor (baza de date) rămân pe disc.
+  deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.finance
+  artifactName: Portofoliu-Bursa-${version}-mac-${arch}.${ext}
+  files:
+    - "!node_modules/better-sqlite3/prebuilds/{win32,linux,linuxmusl}-*"
+  # Fără certificat Apple: semnătură „ad-hoc”, fără de care aplicația nu pornește
+  # deloc pe Mac-urile cu Apple Silicon. Aplicația rămâne „de la un dezvoltator
+  # neidentificat” (vezi README pentru cum se deschide prima dată).
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+dmg:
+  title: Portofoliu Bursa ${version}
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Office
+  synopsis: Monitorizarea investițiilor la bursă
+  artifactName: Portofoliu-Bursa-${version}-linux-${arch}.${ext}
+  files:
+    - "!node_modules/better-sqlite3/prebuilds/{win32,darwin}-*"
+    - "!node_modules/better-sqlite3/prebuilds/{linux,linuxmusl}-arm64.node"

@@ -1,0 +1,120 @@
+# Construiește installerele pentru Windows, macOS și Linux și le publică în
+# GitHub Releases la fiecare tag de forma „v*” (ex.: v1.0.0).
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Poate fi pornit și manual (Actions -> Release -> Run workflow); în acest caz
+# installerele rămân doar ca artefacte ale rulării, fără a crea un release.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write # necesar pentru crearea release-ului
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            target: --win
+          - name: macOS
+            os: macos-latest
+            target: --mac
+          - name: Linux
+            os: ubuntu-latest
+            target: --linux
+
+    steps:
+      - name: Descarcă sursele
+        uses: actions/checkout@v4
+
+      - name: Instalează Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalează dependențele
+        run: npm ci
+
+      # Versiunea aplicației trebuie să fie aceeași cu tagul (v1.2.3 -> 1.2.3).
+      - name: Verifică versiunea din package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::Tagul v$TAG nu corespunde versiunii $VERSION din package.json. Rulează «npm version $TAG» înainte de a crea tagul."
+            exit 1
+          fi
+
+      - name: Rulează testele
+        run: npm test
+
+      - name: Verifică tipurile și construiește aplicația
+        run: npm run build
+
+      - name: Creează installerul
+        run: npx electron-builder ${{ matrix.target }} --publish never
+        env:
+          # Fără certificate de semnare: nu căuta unul în sistem.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Păstrează installerul ca artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.name }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publică în GitHub Releases
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Adună installerele
+        uses: actions/download-artifact@v4
+        with:
+          path: installers
+          pattern: installer-*
+          merge-multiple: true
+
+      - name: Creează release-ul
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Portofoliu Bursa ${{ github.ref_name }}
+          files: installers/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## Descărcare
+
+            | Sistem | Fișier |
+            |---|---|
+            | Windows 10/11 | `Portofoliu-Bursa-Setup-*.exe` |
+            | macOS (Apple Silicon: M1/M2/M3/M4) | `Portofoliu-Bursa-*-mac-arm64.dmg` |
+            | macOS (Intel) | `Portofoliu-Bursa-*-mac-x64.dmg` |
+            | Linux | `Portofoliu-Bursa-*-linux-x86_64.AppImage` |
+
+            Aplicația nu este semnată digital, așa că Windows și macOS afișează un avertisment la prima pornire.
+            Pașii pentru instalare sunt descriși în [README](https://github.com/${{ github.repository }}#readme).

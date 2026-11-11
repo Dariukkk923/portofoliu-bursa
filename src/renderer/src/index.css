@@ -1,0 +1,142 @@
+@import 'tailwindcss';
+
+/* Tema dark se activează prin clasa .dark pe <html> (vezi context/AppContext.tsx). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Culorile aplicației sunt definite ca roluri (fundal, suprafață, text, profit,
+ * pierdere, serii de grafic) și au câte o valoare pentru fiecare temă.
+ * Componentele folosesc rolurile (ex.: bg-surface, text-ink-2), nu culori brute.
+ */
+:root {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #f1f4f8;
+  --line: #e2e7ee;
+  --ink: #0f172a;
+  --ink-2: #475569;
+  --ink-3: #8593a6;
+  --accent: #2a6fd0;
+  --accent-ink: #ffffff;
+  --accent-soft: #e6effc;
+  /* verde = profit, roșu = pierdere */
+  --gain: #15803d;
+  --gain-soft: #e3f5e8;
+  --loss: #c02626;
+  --loss-soft: #fdeaea;
+  --warn: #9a6200;
+  --warn-soft: #fdf2d8;
+  /* paleta categorială a graficelor (ordine fixă, validată pentru daltonism) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+  --series-other: #9aa5b4;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #0c1118;
+  --surface: #151b24;
+  --surface-2: #1c2430;
+  --line: #2a3442;
+  --ink: #e8edf4;
+  --ink-2: #a3b0c0;
+  --ink-3: #6f7d8f;
+  --accent: #4a92ea;
+  --accent-ink: #06121f;
+  --accent-soft: #17293f;
+  --gain: #4ade80;
+  --gain-soft: #12301f;
+  --loss: #f87171;
+  --loss-soft: #3a1818;
+  --warn: #f2b84b;
+  --warn-soft: #3a2c10;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --series-other: #5f6b7b;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-gain: var(--gain);
+  --color-gain-soft: var(--gain-soft);
+  --color-loss: var(--loss);
+  --color-loss-soft: var(--loss-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Cifrele din tabele se aliniază pe coloane. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+button:not(:disabled),
+[role='button'] {
+  cursor: pointer;
+}
+
+/* Bare de derulare discrete, în ambele teme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator {
+  opacity: 0.6;
+}
+.dark input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+/* Recharts: fără contur de focus pe elementele SVG la click. */
+.recharts-wrapper :focus {
+  outline: none;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.animate-in {
+  animation: fade-in 0.16s ease-out;
+}
