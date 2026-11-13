@@ -28,7 +28,7 @@ import {
   buildDateRange,
   buildPerformanceSeries,
   buildValueSeries,
-  externalFlow,
+  performanceLooksOff,
   twrSeries,
   xirr,
   xirrFlows,
@@ -407,7 +407,11 @@ export function getPerformance(
   const first = points[0];
   const last = points[points.length - 1];
   const totalTwr = twr[twr.length - 1]?.twr ?? null;
-  const netContributions = sum(txs.map((t) => (t.brokerId == null ? ZERO : externalFlow(t, tracked.has(accountKey(t.portfolioId, t.brokerId)), input))));
+  const netContributions = sum(points.flatMap((p) => p.flows.map((f) => dec(f.amount))));
+  const periodGain = last.value - first.value - points.slice(1).reduce((s, p) => s + p.flows.reduce((a, f) => a + f.amount, 0), 0);
+  const capital = first.value + points.slice(1).reduce((s, p) => s + p.flows.reduce((a, f) => a + Math.max(0, f.amount), 0), 0);
+  const odd = performanceLooksOff(totalTwr, periodGain, capital);
+  if (odd) console.warn(`[randament] utilizator ${userId}, ${range}: ${odd}. Verifică depunerile, retragerile și soldurile de cash.`);
 
   // Indicele de referință pe aceeași perioadă, pornind de la 0% în prima zi în care are date.
   const bench = benchmarkSeries(db, userId, scope.single?.benchmark ?? settings.benchmark, base, cache, today);
@@ -539,11 +543,6 @@ export function externalFlows(db: Db, userId: number, filter: PortfolioFilter = 
     priceOn: () => null,
     fxOn
   };
-  const flows: { date: string; amount: number }[] = [];
-  for (const t of txs) {
-    if (t.brokerId == null) continue;
-    const amount = externalFlow(t, tracked.has(accountKey(t.portfolioId, t.brokerId)), input as unknown as Parameters<typeof externalFlow>[2]);
-    if (!amount.isZero()) flows.push({ date: t.date, amount: toNum(amount) });
-  }
+  const flows = buildPerformanceSeries({ ...input, trackedAccounts: tracked }).flatMap((p) => p.flows);
   return { baseCurrency: base, flows };
 }

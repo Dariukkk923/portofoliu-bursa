@@ -149,23 +149,52 @@ export function externalFlow(t: LedgerTx, tracked: boolean, input: SeriesInput):
 export function buildPerformanceSeries(input: PerformanceInput): PerformancePoint[] {
   const { txs, ledger, holdingsAt } = createValuer(input);
   const points: PerformancePoint[] = [];
+  /**
+   * Banii presupuși depuși din afară, pe cont (în moneda de bază): când cumpărările dintr-un cont cu
+   * cash urmărit depășesc depunerile înregistrate, soldul ar ieși negativ și valoarea ar porni de
+   * aproape zero (randamente de sute de procente). Lipsa se tratează ca depunere la data cumpărării,
+   * iar o depunere/ajustare pozitivă ulterioară o acoperă întâi pe aceasta (nu e bani noi de două ori).
+   */
+  const funded = new Map<string, Decimal>();
+  const accountCash = (key: string, date: string): Decimal =>
+    sum0(ledger.cashBalances().filter((c) => accountKey(c.portfolioId, c.brokerId) === key).map((c) => c.exact.times(dec(input.fxOn(c.currency, date)))));
   let next = 0;
   for (const date of input.dates) {
     const flows: Flow[] = [];
     while (next < txs.length && txs[next].date <= date) {
       const t = txs[next++];
       ledger.apply(t);
-      const amount = t.brokerId == null ? ZERO : externalFlow(t, input.trackedAccounts.has(accountKey(t.portfolioId, t.brokerId)), input);
+      if (t.brokerId == null) continue;
+      const key = accountKey(t.portfolioId, t.brokerId);
+      const tracked = input.trackedAccounts.has(key);
+      let amount = externalFlow(t, tracked, input);
+      if (tracked) {
+        let f = funded.get(key) ?? ZERO;
+        if (amount.gt(0) && f.gt(0)) {
+          const repaid = Decimal.min(f, amount);
+          f = f.minus(repaid);
+          amount = amount.minus(repaid);
+        }
+        const shortfall = accountCash(key, t.date).plus(f).neg();
+        if (shortfall.gt(0)) {
+          f = f.plus(shortfall);
+          amount = amount.plus(shortfall);
+        }
+        funded.set(key, f);
+      }
       if (!amount.isZero()) flows.push({ date: t.date, amount: toNum(amount) });
     }
     let value = holdingsAt(date).value;
     for (const c of ledger.cashBalances()) {
       if (input.trackedAccounts.has(accountKey(c.portfolioId, c.brokerId))) value = value.plus(c.exact.times(dec(input.fxOn(c.currency, date))));
     }
+    for (const f of funded.values()) value = value.plus(f);
     points.push({ date, value: toNum(value), flows });
   }
   return points;
 }
+
+const sum0 = (xs: Decimal[]): Decimal => xs.reduce((s, x) => s.plus(x), ZERO);
 
 /**
  * Lista de date dintre `start` și `end` (inclusiv), rărită astfel încât să nu

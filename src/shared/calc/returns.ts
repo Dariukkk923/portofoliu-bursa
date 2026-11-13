@@ -63,6 +63,18 @@ export function twrSeries(points: PerformancePoint[]): { date: string; twr: numb
   return out;
 }
 
+/**
+ * Verificare de bun-simț: randamentul (TWR) trebuie să aibă același semn ca profitul pe aceeași perioadă
+ * și să nu fie de multe ori mai mare decât profitul raportat la banii investiți. Întoarce motivul sau null.
+ */
+export function performanceLooksOff(twr: number | null, gain: number, capital: number): string | null {
+  if (twr === null || !(capital > 0)) return null;
+  const simple = gain / capital;
+  if (Math.abs(gain) >= 1 && Math.abs(twr) > 0.02 && Math.sign(twr) !== Math.sign(gain)) return `TWR ${(twr * 100).toFixed(1)}% are alt semn decât profitul (${gain.toFixed(2)})`;
+  if (Math.abs(twr - simple) > 0.5 && Math.abs(twr) > 5 * Math.max(0.02, Math.abs(simple))) return `TWR ${(twr * 100).toFixed(1)}% diferă enorm de profitul raportat la capital (${(simple * 100).toFixed(1)}%)`;
+  return null;
+}
+
 /** Randamentul anualizat: (1 + R)^(365 / zile) − 1. Null pentru perioade mai scurte de un an. */
 export function annualize(totalReturn: number, days: number): number | null {
   if (!(days >= 365) || !(totalReturn > -1)) return null;
