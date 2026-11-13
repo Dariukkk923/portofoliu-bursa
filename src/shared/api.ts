@@ -7,6 +7,11 @@
  * îl ia din sesiunea proprie, deci interfața nu poate cere datele altui cont.
  */
 import type {
+  AlertCenter,
+  AlertEventView,
+  AlertInput,
+  AlertSymbol,
+  AlertView,
   Asset,
   AssetType,
   AssetUpdate,
@@ -216,6 +221,25 @@ export interface Api {
     templates(): Promise<ImportTemplate[]>;
     deleteTemplate(id: number): Promise<void>;
   };
+  alerts: {
+    /** Alertele utilizatorului (ale portofoliului ales și cele fără portofoliu). */
+    list(portfolioId: number | null): Promise<AlertView[]>;
+    create(input: AlertInput): Promise<AlertView>;
+    update(id: number, input: AlertInput): Promise<AlertView>;
+    setEnabled(id: number, enabled: boolean): Promise<AlertView>;
+    /** Amână alerta cu atâtea minute; null anulează amânarea. */
+    snooze(id: number, minutes: number | null): Promise<AlertView>;
+    remove(id: number): Promise<void>;
+    /** Dintr-o intrare din jurnal: alertă pe ținta de profit și stop-loss ale planului. */
+    fromJournal(entryId: number): Promise<AlertView>;
+    /** Simbolurile din portofoliu și watchlist, pentru alegerea din formular. */
+    symbols(): Promise<AlertSymbol[]>;
+    /** Centrul de notificări: ultimele declanșări și numărul celor necitite. */
+    center(): Promise<AlertCenter>;
+    /** Marchează ca citite notificările date; null = toate. */
+    markRead(ids: number[] | null): Promise<AlertCenter>;
+    clearHistory(): Promise<AlertCenter>;
+  };
   backup: {
     create(): Promise<FileResult>;
     restore(): Promise<FileResult>;
@@ -237,7 +261,9 @@ export type AppEvent =
   /** Datele s-au schimbat în fundal (prețuri noi, restaurare) și ecranele trebuie reîncărcate. */
   | { type: 'data:changed' }
   /** Au sosit logo-uri noi pentru simbolurile date. */
-  | { type: 'logos:changed'; payload: string[] };
+  | { type: 'logos:changed'; payload: string[] }
+  /** Au sunat alerte noi (centrul de notificări trebuie reîncărcat). */
+  | { type: 'alerts:triggered'; payload: AlertEventView[] };
 
 /** Plicul răspunsului IPC: erorile ajung în interfață ca text, nu ca excepții serializate. */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string };

@@ -15,6 +15,7 @@ import { RiskPage } from './pages/RiskPage';
 import { DividendsPage } from './pages/DividendsPage';
 import { JournalPage } from './pages/JournalPage';
 import { GoalsPage } from './pages/GoalsPage';
+import { AlertsPage } from './pages/AlertsPage';
 import { SimulatorPage } from './pages/SimulatorPage';
 import { TaxReportPage } from './pages/TaxReportPage';
 import { resetLogos } from './lib/logos';
@@ -78,6 +79,7 @@ function Workspace() {
       {page === 'dividends' && <DividendsPage />}
       {page === 'journal' && <JournalPage />}
       {page === 'goals' && <GoalsPage />}
+      {page === 'alerts' && <AlertsPage />}
       {page === 'simulator' && <SimulatorPage />}
       {page === 'tax' && <TaxReportPage />}
       {page === 'import' && <ImportPage />}

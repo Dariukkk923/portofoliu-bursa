@@ -1226,3 +1226,98 @@ export interface GoalView extends Goal {
   /** Valoarea actuală / suma-țintă (0–1). */
   progress: number;
 }
+
+/* ---------------------------------------------------------------- alerte */
+
+export type AlertDirection = 'above' | 'below';
+
+/** Condiția unei alerte: tipul (`kind`) hotărăște câmpurile; evaluarea este în `shared/alerts.ts`. */
+export type AlertCondition =
+  | { kind: 'price'; symbol: string; direction: AlertDirection; value: number }
+  /** Prețul a ajuns la prețul țintă de cumpărare din watchlist. */
+  | { kind: 'watchlist_target'; symbol: string }
+  | { kind: 'daily_move'; symbol: string; direction: 'up' | 'down'; pct: number }
+  | { kind: 'position_pnl'; symbol: string; metric: 'pct' | 'amount'; direction: 'profit' | 'loss'; value: number }
+  /** Poziția pe minus revine la prețul de break-even. */
+  | { kind: 'break_even'; symbol: string }
+  | { kind: 'sell_target'; symbol: string; takeProfit: number | null; stopLoss: number | null }
+  | { kind: 'portfolio'; metric: 'value' | 'profit'; direction: AlertDirection; value: number }
+  | { kind: 'benchmark_lag'; range: HistoryRange; lagPct: number }
+  | { kind: 'dividend'; symbol: string | null; event: 'ex_soon' | 'paid'; daysBefore: number }
+  | { kind: 'concentration'; symbol: string | null; limitPct: number | null }
+  | { kind: 'goal'; goalId: number; mode: 'progress' | 'behind'; pct: number | null }
+  | { kind: 'journal_review'; entryId: number | null }
+  /** Rezultatele companiei: datele vin dintr-o sursă înregistrată separat (vezi `registerEarningsSource`). */
+  | { kind: 'earnings'; symbol: string; event: 'soon' | 'published'; daysBefore: number };
+
+export type AlertKind = AlertCondition['kind'];
+
+export type AlertRepeat = 'once' | 'repeat';
+
+/** Starea internă a unei alerte între evaluări (nu se arată în interfață). */
+export interface AlertState {
+  /** Break-even: poziția a fost sub preț de la ultima declanșare. */
+  below?: boolean;
+  /** Evenimentele (dividend, rezultate) pentru care s-a anunțat deja. */
+  seen?: string[];
+}
+
+export interface AlertInput {
+  portfolioId?: number | null;
+  condition: AlertCondition;
+  enabled?: boolean;
+  repeat?: AlertRepeat;
+  /** Pauza minimă între două declanșări, în minute (doar la „repeat”). */
+  minPauseMin?: number;
+  /** Intervalul orar permis, „HH:MM” (ambele sau niciunul). */
+  windowStart?: string | null;
+  windowEnd?: string | null;
+  sound?: boolean;
+  note?: string | null;
+}
+
+export interface AlertView {
+  id: number;
+  portfolioId: number | null;
+  portfolioName: string | null;
+  kind: AlertKind;
+  condition: AlertCondition;
+  /** Descrierea condiției, în română. */
+  summary: string;
+  enabled: boolean;
+  repeat: AlertRepeat;
+  minPauseMin: number;
+  windowStart: string | null;
+  windowEnd: string | null;
+  sound: boolean;
+  snoozedUntil: string | null;
+  note: string | null;
+  lastTriggeredAt: string | null;
+  triggerCount: number;
+  createdAt: string;
+}
+
+export interface AlertEventView {
+  id: number;
+  alertId: number | null;
+  kind: AlertKind;
+  title: string;
+  body: string;
+  note: string | null;
+  createdAt: string;
+  readAt: string | null;
+}
+
+/** Centrul de notificări: ultimele declanșări și câte sunt necitite. */
+export interface AlertCenter {
+  events: AlertEventView[];
+  unread: number;
+}
+
+/** Simbolurile din care se poate alege la o alertă (portofoliu + watchlist). */
+export interface AlertSymbol {
+  symbol: string;
+  name: string;
+  currency: string;
+  held: boolean;
+}

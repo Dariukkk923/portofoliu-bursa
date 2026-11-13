@@ -7,7 +7,7 @@
  * prețuri: serviciul de prețuri cere cotația și istoricul recent și pentru
  * simbolurile din watchlist, deci totul merge și offline, cu ultimele valori.
  */
-import { ASSET_CURRENCIES, ASSET_TYPES, type Watchlist, type WatchlistItemInput, type WatchlistItemUpdate, type WatchlistItemView } from '@shared/types';
+import { ASSET_CURRENCIES, ASSET_TYPES, type Asset, type Watchlist, type WatchlistItemInput, type WatchlistItemUpdate, type WatchlistItemView } from '@shared/types';
 import { addDays, todayIso } from '@shared/dates';
 import { Ledger } from '@shared/calc';
 import { dec } from '@shared/calc/decimal';
@@ -127,6 +127,30 @@ function heldSymbols(db: Db, userId: number): Set<string> {
   return held;
 }
 
+/** Prețul unui simbol, închiderea anterioară și variația de azi (folosit și de alerte). */
+export function quoteOf(
+  symbol: string,
+  asset: Asset | undefined,
+  cache: ReturnType<typeof getCachedPrices>,
+  points: { date: string; close: number }[],
+  today: string
+): { price: number | null; asOf: string | null; previousClose: number | null; changePct: number | null } {
+  const cached = cache.get(symbol);
+  // Activul deținut cu preț manual își păstrează prețul manual; altfel ultimul preț din API.
+  const resolved = asset ? resolvePrice(asset, cache) : cached && cached.price > 0 ? { price: cached.price, asOf: cached.asOf } : null;
+  const price = resolved?.price ?? null;
+  const asOf = resolved?.asOf ?? null;
+  const quoteDay = (asOf ?? today).slice(0, 10);
+  let previousClose: number | null = null;
+  for (let i = points.length - 1; i >= 0; i--) {
+    if (points[i].date < quoteDay) {
+      previousClose = points[i].close;
+      break;
+    }
+  }
+  return { price, asOf, previousClose, changePct: price !== null && previousClose ? price / previousClose - 1 : null };
+}
+
 /** Instrumentele dintr-o listă, cu prețul, variația de azi și istoricul pentru graficul mic. */
 export function listWatchlistItems(db: Db, userId: number, watchlistId: number, today: string = todayIso()): WatchlistItemView[] {
   getList(db, userId, watchlistId);
@@ -141,20 +165,10 @@ export function listWatchlistItems(db: Db, userId: number, watchlistId: number, 
   return rows.map((r) => {
     const symbol = r.symbol as string;
     const asset = assets.get(symbol);
-    const cached = cache.get(symbol);
-    // Activul deținut cu preț manual își păstrează prețul manual; altfel ultimul preț din API.
-    const resolved = asset ? resolvePrice(asset, cache) : cached && cached.price > 0 ? { price: cached.price, asOf: cached.asOf } : null;
-    const price = resolved?.price ?? null;
-    const asOf = resolved?.asOf ?? null;
     const points = history.get(symbol) ?? [];
-    const quoteDay = (asOf ?? today).slice(0, 10);
-    let previousClose: number | null = null;
-    for (let i = points.length - 1; i >= 0; i--) {
-      if (points[i].date < quoteDay) {
-        previousClose = points[i].close;
-        break;
-      }
-    }
+    const q = quoteOf(symbol, asset, cache, points, today);
+    const { price, previousClose } = q;
+    const asOf = q.asOf;
     const target = r.target_price == null ? null : Number(r.target_price);
     return {
       id: r.id as number,

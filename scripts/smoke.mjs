@@ -316,6 +316,29 @@ try {
   await shot('09q-panou-obiective');
   console.log('obiective: proiecție, slider, bani de azi, card pe panoul principal');
 
+  // Alertele: o alertă pe valoarea portofoliului (deja îndeplinită) sună imediat; apare în clopoțel și se marchează ca citită.
+  await nav('Alerte');
+  await page.getByText('Nicio alertă încă').first().waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Adaugă alertă' }).first().click();
+  await page.getByLabel('Tipul alertei').selectOption('portfolio');
+  await page.getByLabel('Valoare', { exact: true }).fill('1');
+  await page.getByLabel(/^Notă personală/).fill('Test smoke');
+  await shot('09r-alerta-formular');
+  await page.getByRole('button', { name: 'Salvează' }).click();
+  await page.getByText(/Valoarea totală peste 1/).first().waitFor({ timeout: 30000 });
+  await shot('09s-alerte');
+  const unread = page.getByTestId('alerts-unread');
+  await unread.waitFor({ timeout: 30000 });
+  check((await unread.innerText()).trim() === '1', 'Clopoțelul ar trebui să arate o notificare necitită.');
+  await page.getByRole('button', { name: /^Notificări/ }).click();
+  await page.getByRole('dialog', { name: 'Centrul de notificări' }).getByText(/Portofoliul: valoarea totală este peste/).waitFor();
+  check((await page.getByRole('dialog', { name: 'Centrul de notificări' }).getByText('Test smoke').count()) === 1, 'Nota personală lipsește din notificare.');
+  await shot('09t-centrul-de-notificari');
+  await page.getByRole('button', { name: 'Marchează tot ca citit' }).click();
+  await unread.waitFor({ state: 'detached', timeout: 10000 });
+  await page.keyboard.press('Escape');
+  console.log('alerte: creare, declanșare imediată, centru de notificări, marcare ca citită');
+
   // Portofoliile: contul demo are „Principal” și „Crypto”; ecranul de comparație și selectorul din bara de sus.
   await nav('Portofolii');
   await page.getByRole('cell', { name: /Crypto/ }).first().waitFor({ timeout: 30000 });

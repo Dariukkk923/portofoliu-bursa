@@ -5,6 +5,7 @@
 import { useState, type ReactNode } from 'react';
 import {
   ArrowLeftRight,
+  Bell,
   Building2,
   CalendarDays,
   ChartNoAxesCombined,
@@ -31,6 +32,7 @@ import { useApp, useLoad } from '../context/AppContext';
 import { dateTime } from '../lib/format';
 import { Badge, Button, Modal, Notice, Select, cx } from './ui';
 import { PortfolioSwitcher } from './portfolio';
+import { NotificationBell } from './alertsBell';
 
 export type PageId =
   | 'dashboard'
@@ -40,6 +42,7 @@ export type PageId =
   | 'risk'
   | 'dividends'
   | 'journal'
+  | 'alerts'
   | 'simulator'
   | 'goals'
   | 'tax'
@@ -76,7 +79,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: 'Planificare',
     items: [
       { id: 'goals', label: 'Obiective', icon: Target },
-      { id: 'journal', label: 'Jurnal', icon: NotebookPen }
+      { id: 'journal', label: 'Jurnal', icon: NotebookPen },
+      { id: 'alerts', label: 'Alerte', icon: Bell }
     ]
   },
   {
@@ -110,6 +114,7 @@ const TITLES: Record<PageId, string> = {
   dividends: 'Calendar de dividende',
   journal: 'Jurnal de investiții',
   goals: 'Obiective financiare',
+  alerts: 'Alerte',
   simulator: 'Ce-ar fi fost dacă',
   tax: 'Raport anual pentru taxe',
   import: 'Import din extrasul brokerului',
@@ -251,6 +256,7 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
               <div>Prețuri actualizate</div>
               <div className="tabular font-medium text-ink-2">{dateTime(priceStatus?.lastPriceUpdate)}</div>
             </div>
+            <NotificationBell onOpenAlerts={() => go('alerts')} />
             <Button
               className="max-md:order-2"
               onClick={() => void refreshPrices()}

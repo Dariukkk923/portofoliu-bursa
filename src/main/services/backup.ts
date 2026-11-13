@@ -39,7 +39,9 @@ const USER_TABLES = [
   'fx_official_sync',
   'journal_entries',
   'journal_tags',
-  'goals'
+  'goals',
+  'alerts',
+  'alert_events'
 ] as const;
 
 type Row = Record<string, unknown>;
@@ -129,6 +131,8 @@ export function restoreBackup(
     db.transaction(() => {
       // 1. Ștergem datele actuale ale utilizatorului (tranzacțiile întâi, din cauza cheilor străine).
       for (const table of [
+        'alert_events',
+        'alerts',
         'goals',
         'journal_tags',
         'journal_entries',
@@ -258,13 +262,35 @@ export function restoreBackup(
       }
 
       // Obiectivele (cu portofoliul și brokerul traduse; un portofoliu care nu mai există = toate portofoliile).
-      for (const { id: _gid, ...row } of read('goals')) {
-        insertRow(db, 'goals', {
+      const goalIds = new Map<number, number>();
+      for (const { id: gid, ...row } of read('goals')) {
+        goalIds.set(gid as number, insertRow(db, 'goals', {
           ...row,
           user_id: userId,
           portfolio_id: portfolioOf(row.portfolio_id),
           broker_id: row.broker_id == null ? null : (brokerIds.get(row.broker_id as number) ?? null)
-        });
+        }));
+      }
+
+      // Alertele: condiția poartă id-uri de obiectiv și de intrare din jurnal, traduse la cele noi; istoricul declanșărilor le urmează.
+      const alertIds = new Map<number, number>();
+      for (const { id: aid, ...row } of read('alerts')) {
+        const cond = json(row.condition) as Record<string, unknown> | null;
+        if (!cond || Array.isArray(cond)) continue;
+        if (cond.kind === 'goal') {
+          const g = goalIds.get(Number(cond.goalId));
+          if (g === undefined) continue;
+          cond.goalId = g;
+        }
+        if (cond.kind === 'journal_review' && cond.entryId != null) {
+          const e = entryIds.get(Number(cond.entryId));
+          if (e === undefined) continue;
+          cond.entryId = e;
+        }
+        alertIds.set(aid as number, insertRow(db, 'alerts', { ...row, user_id: userId, portfolio_id: portfolioOf(row.portfolio_id), condition: JSON.stringify(cond) }));
+      }
+      for (const { id: _eid, ...row } of read('alert_events')) {
+        insertRow(db, 'alert_events', { ...row, user_id: userId, alert_id: row.alert_id == null ? null : (alertIds.get(row.alert_id as number) ?? null) });
       }
 
       // Corespondențele dintre simbolurile brokerului și active și șabloanele de mapare (pentru importurile viitoare).
