@@ -5,12 +5,12 @@
  * Serviciile (`news.ts`, `financials.ts`) lucrează cu interfața `ResearchSources`, ca testele să
  * poată înlocui rețeaua cu date fixe.
  */
-import YahooFinance from 'yahoo-finance2';
 import type { AssetType, ProviderId, StatementSet } from '@shared/types';
 import { addDays, todayIso } from '@shared/dates';
 import type { Db } from '../db/database';
 import type { SecretBox } from '../secrets';
 import { getApiKey } from '../services/settings';
+import { getYahooClient } from '../prices/yahoo';
 import { fetchImage, fetchJson, isNetworkError, parseCryptoSymbol, ProviderError, RateLimiter, splitExchangeSuffix, type LogoImage } from '../prices/provider';
 import {
   emptySet,
@@ -53,14 +53,8 @@ const polygonLimiter = new RateLimiter(13_000);
 const alphaLimiter = new RateLimiter(1_500);
 const ALPHA_SUFFIX: Record<string, string> = { L: 'LON', DE: 'DEX', F: 'FRK', PA: 'PAR', AS: 'AMS', TO: 'TRT' };
 
-let yahooClient: Any = null;
-function yf(): Any {
-  if (!yahooClient) {
-    const Ctor: Any = (YahooFinance as Any).default ?? YahooFinance;
-    yahooClient = new Ctor({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
-  }
-  return yahooClient;
-}
+/** Clientul Yahoo ales la pornire: yahoo-finance2 pe desktop, clientul prin proxy pe web. */
+const yf = (): Any => getYahooClient();
 
 /** Rezultatul unei cereri sau null la erori „normale” (simbol fără date); erorile de rețea se propagă. */
 async function soft<T>(work: Promise<T>): Promise<T | null> {

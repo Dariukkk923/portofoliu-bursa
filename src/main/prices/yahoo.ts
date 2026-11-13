@@ -3,7 +3,6 @@
  * providerul implicit: acoperă acțiuni, ETF-uri (inclusiv BVB, sufix .RO),
  * crypto (BTC-USD) și cursuri valutare (EURRON=X).
  */
-import YahooFinance from 'yahoo-finance2';
 import type { AssetType, SymbolSearchResult } from '@shared/types';
 import { addDays, todayIso } from '@shared/dates';
 import {
@@ -39,16 +38,28 @@ const QUOTE_TYPES: Record<string, AssetType> = {
 
 type Any = any;
 
+/**
+ * Clientul Yahoo (metodele quote, chart, quoteSummary, search). Pe desktop este yahoo-finance2
+ * (yahooNode.ts), pe web un client mic prin proxy (src/web/yahooWeb.ts); îl alege punctul de pornire.
+ */
+let clientFactory: () => Any = () => {
+  throw new Error('Clientul Yahoo nu este configurat.');
+};
+let sharedClient: Any = null;
+export const setYahooClientFactory = (factory: () => Any): void => {
+  clientFactory = factory;
+  sharedClient = null;
+};
+/** Un client comun pentru restul aplicației (știri, raportări financiare). */
+export const getYahooClient = (): Any => (sharedClient ??= clientFactory());
+
 export class YahooProvider implements PriceProvider {
   readonly id = 'yahoo' as const;
   private client: Any = null;
 
   /** Clientul se creează la prima folosire. */
   private yf(): Any {
-    if (!this.client) {
-      const Ctor: Any = (YahooFinance as Any).default ?? YahooFinance;
-      this.client = new Ctor({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
-    }
+    if (!this.client) this.client = clientFactory();
     return this.client;
   }
 
