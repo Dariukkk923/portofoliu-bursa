@@ -24,7 +24,8 @@ const KINDS: AlertKind[] = [
   'dividend',
   'concentration',
   'goal',
-  'journal_review'
+  'journal_review',
+  'earnings'
 ];
 
 const PAUSES: { value: number; label: string }[] = [
@@ -134,6 +135,10 @@ function draftOf(a: AlertView): Draft {
       d.event = c.mode;
       d.value = text(c.pct);
       break;
+    case 'earnings':
+      d.event = c.event;
+      d.days = String(c.daysBefore);
+      break;
     default:
       break;
   }
@@ -152,7 +157,7 @@ const kindDefaults = (kind: AlertKind): Partial<Draft> => ({
   kind,
   metric: kind === 'portfolio' ? 'value' : 'pct',
   direction: kind === 'daily_move' ? 'up' : kind === 'position_pnl' ? 'profit' : 'above',
-  event: kind === 'goal' ? 'progress' : 'ex_soon',
+  event: kind === 'goal' ? 'progress' : kind === 'earnings' ? 'soon' : 'ex_soon',
   value: ''
 });
 
@@ -186,6 +191,8 @@ function conditionOf(d: Draft): AlertCondition {
       return { kind: 'goal', goalId: Number(d.goalId), mode: d.event === 'behind' ? 'behind' : 'progress', pct: d.event === 'behind' ? null : n(d.value || '100') };
     case 'journal_review':
       return { kind: 'journal_review', entryId: null };
+    case 'earnings':
+      return { kind: 'earnings', symbol, event: d.event === 'published' ? 'published' : 'soon', daysBefore: n(d.days || '3') };
     default:
       throw new Error('Tip necunit.');
   }
@@ -360,6 +367,25 @@ function KindFields({ d, set, symbols, goals }: { d: Draft; set: (patch: Partial
         </>
       )}
       {d.kind === 'journal_review' && <p className="text-xs text-ink-3">Te anunță când o teză din jurnal ajunge la data de revizuire.</p>}
+      {d.kind === 'earnings' && (
+        <>
+          {symbolField()}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Eveniment">
+              <Select value={d.event === 'published' ? 'published' : 'soon'} onChange={(e) => set({ event: e.target.value })}>
+                <option value="soon">Compania își publică rezultatele în curând</option>
+                <option value="published">Au apărut rezultatele</option>
+              </Select>
+            </Field>
+            {d.event !== 'published' && (
+              <Field label="Cu câte zile înainte">
+                <Input inputMode="numeric" value={d.days} onChange={(e) => set({ days: e.target.value })} />
+              </Field>
+            )}
+          </div>
+          <p className="text-xs text-ink-3">Datele vin din calendarul de raportări, pentru acțiunile pe care le deții.</p>
+        </>
+      )}
     </>
   );
 }

@@ -7,6 +7,7 @@
  * ETF-urile, obligațiunile și crypto nu raportează rezultate: pentru ele răspunsul este „nesuportat”,
  * nu o eroare.
  */
+import type { EarningsSnap } from '@shared/alerts';
 import type {
   AssetType,
   CompanyFinancials,
@@ -257,4 +258,12 @@ export async function latestReportDates(db: Db, userId: number, sources: Researc
     const d = load.data.get(s.symbol);
     return { symbol: s.symbol, name: s.name, reportedDate: d?.lastReportedDate ?? null, periodEnd: d?.lastPeriodEnd ?? null };
   });
+}
+
+/** Datele pentru alertele de rezultate: următoarea publicare și ultima apărută, per simbol. */
+export function earningsSnapshots(upcoming: UpcomingReport[], latest: LatestReportDate[]): Map<string, EarningsSnap> {
+  const map = new Map<string, EarningsSnap>();
+  for (const l of latest) map.set(l.symbol, { nextDate: null, lastPublishedDate: l.reportedDate });
+  for (const u of upcoming) map.set(u.symbol, { nextDate: u.date, lastPublishedDate: map.get(u.symbol)?.lastPublishedDate ?? null });
+  return map;
 }

@@ -496,3 +496,19 @@ describe('funcții pentru alerte', () => {
     expect((await upcomingReports(db, ana.id, src, { now: NOW })).map((r) => r.symbol)).toEqual(['AAPL']);
   });
 });
+
+describe('earningsSnapshots', () => {
+  it('pune laolaltă următoarea raportare și ultima publicată', async () => {
+    const { earningsSnapshots } = await import('../src/main/services/financials');
+    const m = earningsSnapshots(
+      [{ symbol: 'AAPL', name: 'Apple', date: '2026-03-12', daysUntil: 3, estimated: false, epsEstimate: 1.2 }],
+      [
+        { symbol: 'AAPL', name: 'Apple', reportedDate: '2025-12-10', periodEnd: '2025-09-30' },
+        { symbol: 'MSFT', name: 'Microsoft', reportedDate: null, periodEnd: null }
+      ]
+    );
+    expect(m.get('AAPL')).toEqual({ nextDate: '2026-03-12', lastPublishedDate: '2025-12-10' });
+    expect(m.get('MSFT')).toEqual({ nextDate: null, lastPublishedDate: null });
+    expect(m.has('NVDA')).toBe(false);
+  });
+});

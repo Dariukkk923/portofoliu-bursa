@@ -6,6 +6,7 @@
  * utilizator autentificat, și transmite serviciilor id-ul din sesiune — nu
  * unul primit de la interfață. Așa se garantează izolarea datelor pe utilizator.
  */
+import type { EarningsSnap } from '@shared/alerts';
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,7 +44,7 @@ import { getLogos } from './prices/store';
 import type { SymbolRef } from './prices/provider';
 import { looksLikeZip } from './xlsx';
 import { getNews } from './services/news';
-import { getEarningsCalendar, getFinancials } from './services/financials';
+import { earningsSnapshots, getEarningsCalendar, getFinancials, latestReportDates, upcomingReports } from './services/financials';
 import { researchSymbols } from './services/research';
 import { createResearchSources } from './research/sources';
 
@@ -86,8 +87,18 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
   // --- actualizarea automată a prețurilor ---------------------------------
 
   /** Evaluează alertele utilizatorului și anunță declanșările (notificare nativă + eveniment către interfață). */
+  /** Ultimele date despre raportări, per utilizator; se reîncarcă după fiecare actualizare de prețuri. */
+  const earningsCache = new Map<number, Map<string, EarningsSnap>>();
+  const warmEarnings = async (userId: number): Promise<void> => {
+    const sources = createResearchSources(db, secrets, userId);
+    const [next, last] = await Promise.all([upcomingReports(db, userId, sources, { withinDays: 60 }), latestReportDates(db, userId, sources)]);
+    earningsCache.set(userId, earningsSnapshots(next, last));
+  };
+
   const runAlerts = (userId: number): void => {
     try {
+      const snaps = earningsCache.get(userId);
+      alerts.registerEarningsSource(snaps ? (symbol) => snaps.get(symbol) ?? null : null);
       const fired = alerts.evaluateAlerts(db, userId);
       if (fired.length === 0 || userId !== currentUserId) return;
       for (const { event, sound } of fired) {
@@ -114,6 +125,10 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
     const result = await prices.refresh(userId, { force });
     // Alertele se evaluează după fiecare actualizare de prețuri, cât timp aplicația rulează.
     runAlerts(userId);
+    // Calendarul de raportări vine din rețea (cu cache); alertele de rezultate se reevaluează după.
+    void warmEarnings(userId)
+      .then(() => runAlerts(userId))
+      .catch((err) => console.warn('[ipc] calendarul de raportări nu s-a încărcat:', err instanceof Error ? err.message : err));
     if (userId === currentUserId) send({ type: 'data:changed' });
     return result;
   };
