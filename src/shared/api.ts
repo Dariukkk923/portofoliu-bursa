@@ -35,6 +35,7 @@ import type {
   MovePreview,
   MoveResult,
   PerformanceData,
+  PeriodProfit,
   Portfolio,
   PortfolioComparison,
   PortfolioInput,
@@ -123,6 +124,8 @@ export interface Api {
     history(range: HistoryRange, filter: PortfolioFilter): Promise<HistoryPoint[]>;
     /** Randamentul TWR și XIRR pe interval, plus totalul depus net de la început. */
     performance(range: HistoryRange, filter: PortfolioFilter): Promise<PerformanceData>;
+    /** Profitul realizat și variația celui nerealizat pe perioada aleasă. */
+    periodProfit(range: HistoryRange, filter: PortfolioFilter): Promise<PeriodProfit>;
     /** Ecranul „Risc”: concentrare, expuneri, volatilitate, scădere maximă, beta, scor de diversificare. */
     risk(range: HistoryRange, filter: PortfolioFilter): Promise<RiskReport>;
     addPurchase(input: PurchaseInput): Promise<Transaction>;

@@ -41,12 +41,17 @@ export const COST_METHOD_LABEL: Record<CostMethod, string> = {
 };
 
 export const RANGE_LABEL: Record<HistoryRange, string> = {
+  '1W': '1S',
   '1M': '1L',
   '3M': '3L',
   '6M': '6L',
+  YTD: 'YTD',
   '1Y': '1A',
   ALL: 'Tot'
 };
+
+/** Perioadele din selectoarele de pe panoul principal, în ordine. */
+export const PERIODS: HistoryRange[] = ['1W', '1M', '3M', '6M', 'YTD', '1Y', 'ALL'];
 
 /** Afișează o cantitate fără zerouri inutile (maximum 8 zecimale). */
 export function formatQuantityPlain(n: number): string {

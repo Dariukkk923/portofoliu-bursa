@@ -4,19 +4,16 @@
  * ponderat în timp (TWR), deci depunerile și retragerile nu distorsionează comparația;
  * indicele este convertit în moneda portofoliului la cursul fiecărei zile.
  */
-import { useState } from 'react';
 import type { HistoryRange, PortfolioFilter } from '@shared/types';
-import { RANGE_LABEL } from '@shared/labels';
+import { PERIODS, RANGE_LABEL } from '@shared/labels';
 import { api } from '../api';
 import { useLoad } from '../context/AppContext';
 import { date as fmtDate, signedPercent } from '../lib/format';
 import { BenchmarkChart, type BenchmarkChartPoint } from './charts';
 import { Card, LoadError, Segmented, Skeleton, cx } from './ui';
 
-const RANGES: HistoryRange[] = ['1M', '3M', '6M', '1Y', 'ALL'];
-
-export function BenchmarkCard({ filter, dataVersion }: { filter: PortfolioFilter; dataVersion: number }) {
-  const [range, setRange] = useState<HistoryRange>('1Y');
+/** Perioada vine de pe panoul principal (aceeași pentru grafic, profit și comparație). */
+export function BenchmarkCard({ filter, dataVersion, range, onRange }: { filter: PortfolioFilter; dataVersion: number; range: HistoryRange; onRange: (r: HistoryRange) => void }) {
   const perf = useLoad(() => api.portfolio.performance(range, filter), [range, filter, dataVersion]);
   const p = perf.data;
   const b = p?.benchmark ?? null;
@@ -36,7 +33,7 @@ export function BenchmarkCard({ filter, dataVersion }: { filter: PortfolioFilter
   return (
     <Card
       title={`Randamentul tău vs. ${name}`}
-      action={<Segmented size="sm" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: RANGE_LABEL[r] }))} />}
+      action={<Segmented size="sm" value={range} onChange={onRange} options={PERIODS.map((r) => ({ value: r, label: RANGE_LABEL[r] }))} />}
     >
       {perf.error ? (
         <LoadError message={perf.error} onRetry={perf.reload} />

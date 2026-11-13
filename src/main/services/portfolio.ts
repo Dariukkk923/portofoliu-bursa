@@ -11,6 +11,7 @@ import type {
   HistoryPoint,
   HistoryRange,
   PerformanceData,
+  PeriodProfit,
   PortfolioComparison,
   PortfolioFilter,
   PortfolioOverview,
@@ -18,7 +19,7 @@ import type {
 } from '@shared/types';
 import { ASSET_TYPE_LABEL_PLURAL } from '@shared/labels';
 import { BENCHMARKS, DEFAULT_BENCHMARK, benchmarkName } from '@shared/benchmarks';
-import { addMonths, daysBetween, todayIso } from '@shared/dates';
+import { addDays, addMonths, daysBetween, todayIso } from '@shared/dates';
 import {
   accountKey,
   annualize,
@@ -304,11 +305,12 @@ export function getOverview(
   };
 }
 
-const RANGE_MONTHS: Record<Exclude<HistoryRange, 'ALL'>, number> = { '1M': 1, '3M': 3, '6M': 6, '1Y': 12 };
+const RANGE_MONTHS: Record<'1M' | '3M' | '6M' | '1Y', number> = { '1M': 1, '3M': 3, '6M': 6, '1Y': 12 };
 
 /** Prima zi a intervalului ales, dar nu înainte de prima tranzacție. */
 export function rangeStart(range: HistoryRange, firstDate: string, today: string): string {
-  const start = range === 'ALL' ? firstDate : addMonths(today, -RANGE_MONTHS[range]);
+  const start =
+    range === 'ALL' ? firstDate : range === '1W' ? addDays(today, -7) : range === 'YTD' ? `${today.slice(0, 4)}-01-01` : addMonths(today, -RANGE_MONTHS[range]);
   const s = start > firstDate ? start : firstDate;
   return s > today ? today : s;
 }
@@ -441,6 +443,87 @@ export function getPerformance(
     netFlows: toNum(sum(points.slice(1).flatMap((p) => p.flows.map((f) => f.amount)))),
     allTime: { netContributions: toNum(netContributions), currentValue: last.value, gain: toNum(dec(last.value).minus(netContributions)) },
     cashTracked: tracked.size > 0
+  };
+}
+
+/**
+ * Profitul pe perioada aleasă: realizat = vânzările + dividendele și cupoanele nete din perioadă;
+ * nerealizat = variația profitului nerealizat (valoarea activelor − costul lor) între începutul și sfârșitul perioadei.
+ */
+export function getPeriodProfit(db: Db, userId: number, range: HistoryRange, filter: PortfolioFilter = {}, today: string = todayIso()): PeriodProfit {
+  const settings = getSettings(db, userId);
+  const scope = resolveScope(db, userId, filter.portfolioId);
+  const base = scope.baseCurrency;
+  const assets = new Map(listAssets(db, userId).map((a) => [a.id, a]));
+  const cache = getCachedPrices(db, userId);
+  const txs = allLedgerTxs(db, userId).filter((t) => {
+    if (t.assetId == null || !scope.includes(t)) return false;
+    const asset = assets.get(t.assetId);
+    if (!asset) return false;
+    if (filter.assetType && asset.type !== filter.assetType) return false;
+    if (filter.brokerId && t.brokerId !== filter.brokerId && !(t.type === 'split' && t.brokerId == null)) return false;
+    return true;
+  });
+  const empty: PeriodProfit = { range, from: today, to: today, baseCurrency: base, realized: 0, realizedSales: 0, income: 0, unrealizedStart: 0, unrealizedEnd: 0, unrealizedChange: 0 };
+  if (txs.length === 0) return empty;
+
+  const sorted = sortTransactions(txs);
+  const first = sorted[0].date;
+  const from = rangeStart(range, first, today);
+  // Perioada care începe la prima tranzacție le cuprinde pe toate; altfel contează doar ce s-a întâmplat după începutul ei.
+  const fromStart = from <= first;
+  const inPeriod = (date: string): boolean => (fromStart || date > from) && date <= today;
+
+  const usedAssets = [...new Set(txs.map((t) => t.assetId as number))].map((id) => assets.get(id) as Asset);
+  const currencies = [...currenciesOf(txs, assets)].filter((c) => c !== base);
+  const history = loadHistory(db, userId, [...usedAssets.map((a) => a.symbol), ...currencies.map((c) => fxSymbol(c, base))]);
+  const fxOn = makeFxOn(base, history, cache, today);
+  const seriesAssets = new Map(usedAssets.map((a) => [a.id, { currency: a.currency, multiplier: priceMultiplier(a) }]));
+  const series = buildValueSeries({
+    transactions: txs,
+    assets: seriesAssets,
+    method: settings.costMethod,
+    dates: fromStart ? [today] : [from, today],
+    priceOn: makePriceOn(assets, history, cache, today),
+    fxOn
+  });
+  const end = series[series.length - 1];
+  const unrealizedStart = fromStart ? 0 : series[0].value - series[0].invested;
+  const unrealizedEnd = end.value - end.invested;
+
+  const ledger = new Ledger({
+    method: settings.costMethod,
+    multiplierOf: (id) => seriesAssets.get(id)?.multiplier ?? 1,
+    currencyOf: (id) => seriesAssets.get(id)?.currency,
+    fxAt: fxOn,
+    strict: false
+  }).applyAll(sorted);
+  const realizedSales = sum(
+    ledger
+      .sales()
+      .filter((s) => inPeriod(s.date))
+      .map((s) => s.gainBase ?? s.gain.times(dec(fxOn(s.currency ?? base, s.date))))
+  );
+  const income = sum(
+    sorted
+      .filter((t) => (t.type === 'dividend' || t.type === 'coupon') && inPeriod(t.date))
+      .map((t) => {
+        const reported = t.cashAmount !== null && t.cashAmount !== undefined && t.cashCurrency ? dec(t.cashAmount).abs() : null;
+        if (reported) return reported.times(dec(fxOn(t.cashCurrency as string, t.date)));
+        return dec(t.netAmount).times(dec(fxOn(t.currency || assets.get(t.assetId as number)?.currency || base, t.date)));
+      })
+  );
+  return {
+    range,
+    from,
+    to: today,
+    baseCurrency: base,
+    realized: toNum(realizedSales.plus(income)),
+    realizedSales: toNum(realizedSales),
+    income: toNum(income),
+    unrealizedStart,
+    unrealizedEnd,
+    unrealizedChange: unrealizedEnd - unrealizedStart
   };
 }
 

@@ -16,7 +16,7 @@ export type CostMethod = 'AVG' | 'FIFO';
 export type ProviderId = 'yahoo' | 'alphavantage' | 'twelvedata' | 'polygon';
 export type Theme = 'light' | 'dark' | 'system';
 export type PriceMode = 'auto' | 'manual';
-export type HistoryRange = '1M' | '3M' | '6M' | '1Y' | 'ALL';
+export type HistoryRange = '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | 'ALL';
 
 export const ASSET_TYPES: AssetType[] = ['stock', 'etf', 'bond', 'crypto'];
 export const TRANSACTION_TYPES: TransactionType[] = ['buy', 'sell', 'dividend', 'coupon', 'split', 'deposit', 'withdrawal', 'fee', 'interest', 'adjustment'];
@@ -1225,4 +1225,20 @@ export interface GoalView extends Goal {
   shortHistory: boolean;
   /** Valoarea actuală / suma-țintă (0–1). */
   progress: number;
+}
+
+/** Profitul pe perioada aleasă (în moneda de bază). */
+export interface PeriodProfit {
+  range: HistoryRange;
+  from: string;
+  to: string;
+  baseCurrency: string;
+  /** Vânzări + dividende și cupoane nete din perioadă. */
+  realized: number;
+  realizedSales: number;
+  income: number;
+  /** Profitul nerealizat (valoare − cost) la începutul și la sfârșitul perioadei, și diferența. */
+  unrealizedStart: number;
+  unrealizedEnd: number;
+  unrealizedChange: number;
 }

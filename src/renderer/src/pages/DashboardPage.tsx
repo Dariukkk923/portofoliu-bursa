@@ -1,11 +1,12 @@
 /** Dashboard-ul: valoarea totală, profitul, evoluția, clasamentele și alocările. */
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { ChartNoAxesCombined, Plus, TrendingDown, TrendingUp } from 'lucide-react';
-import { ASSET_TYPES, type HistoryRange, type PositionView } from '@shared/types';
-import { ASSET_TYPE_LABEL, RANGE_LABEL } from '@shared/labels';
+import { ASSET_TYPES, type PositionView } from '@shared/types';
+import { ASSET_TYPE_LABEL, PERIODS, RANGE_LABEL } from '@shared/labels';
+import { useStoredPeriod } from '../lib/period';
 import { api } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
-import { money, signedMoney, signedPercent } from '../lib/format';
+import { date as fmtDate, money, signedMoney, signedPercent } from '../lib/format';
 import { AllocationDonut, EvolutionChart } from '../components/charts';
 import { CashCards } from '../components/CashCards';
 import { BenchmarkCard } from '../components/BenchmarkCard';
@@ -14,7 +15,6 @@ import { AnimatedNumber, Button, Card, EmptyState, LoadError, Notice, PageSkelet
 import type { PageId } from '../components/Layout';
 import { TickerLogo } from '../components/TickerLogo';
 
-const RANGES: HistoryRange[] = ['1M', '3M', '6M', '1Y', 'ALL'];
 
 /** Card cu o cifră principală și un rând de detalii. */
 function Kpi({ label, value, detail }: { label: string; value: ReactNode; detail?: ReactNode }) {
@@ -52,9 +52,11 @@ function MoversList({ items, base, empty }: { items: PositionView[]; base: strin
 }
 
 export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => void }) {
-  const { filter, dataVersion, brokers, bumpData } = useApp();
-  const [range, setRange] = useState<HistoryRange>('1Y');
+  const { filter, dataVersion, brokers, bumpData, user } = useApp();
+  // O singură perioadă pentru grafic, profitul pe perioadă și comparația cu indicele; se ține minte.
+  const [range, setRange] = useStoredPeriod(user?.id);
   const overview = useLoad(() => api.portfolio.overview(filter), [filter, dataVersion]);
+  const period = useLoad(() => api.portfolio.periodProfit(range, filter), [range, filter, dataVersion]);
   const history = useLoad(() => api.portfolio.history(range, filter), [range, filter, dataVersion]);
   const performance = useLoad(() => api.portfolio.performance('ALL', filter), [filter, dataVersion]);
   // Lista completă a activelor dă o ordine stabilă culorilor din graficul de alocare.
@@ -67,6 +69,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
 
   const t = o.totals;
   const base = t.baseCurrency;
+  const pp = range !== 'ALL' ? period.data : null;
   const hasData = o.positions.length > 0 || o.closed.length > 0;
   const filtered = !!(filter.brokerId || filter.assetType);
 
@@ -102,6 +105,12 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
       )}
       {o.approximateFx && <Notice tone="warn">Cursurile valutare nu au putut fi descărcate încă; conversia în {base} folosește cursuri aproximative până la prima actualizare.</Notice>}
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-body text-ink-2">
+          {range === 'ALL' ? 'Profitul de la început' : `Profitul în perioada aleasă (${RANGE_LABEL[range]}${pp ? `, de la ${fmtDate(pp.from)}` : ''})`}
+        </p>
+        <Segmented size="sm" value={range} onChange={setRange} options={PERIODS.map((r) => ({ value: r, label: RANGE_LABEL[r] }))} />
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
           label="Valoarea totală a portofoliului"
@@ -117,6 +126,46 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
             </>
           }
         />
+        {pp ? (
+          <>
+            <Kpi
+              label={`Profit total · ${RANGE_LABEL[range]}`}
+              value={
+                <Pnl value={pp.realized + pp.unrealizedChange}>
+                  <AnimatedNumber value={pp.realized + pp.unrealizedChange} format={(v) => signedMoney(v, base)} />
+                </Pnl>
+              }
+              detail="Realizat în perioadă + variația celui nerealizat"
+            />
+            <Kpi
+              label={`Profit nerealizat · ${RANGE_LABEL[range]}`}
+              value={
+                <Pnl value={pp.unrealizedChange}>
+                  <AnimatedNumber value={pp.unrealizedChange} format={(v) => signedMoney(v, base)} />
+                </Pnl>
+              }
+              detail={
+                <span className="tabular">
+                  De la {signedMoney(pp.unrealizedStart, base)} la {signedMoney(pp.unrealizedEnd, base)}
+                </span>
+              }
+            />
+            <Kpi
+              label={`Profit realizat · ${RANGE_LABEL[range]}`}
+              value={
+                <Pnl value={pp.realized}>
+                  <AnimatedNumber value={pp.realized} format={(v) => signedMoney(v, base)} />
+                </Pnl>
+              }
+              detail={
+                <span className="tabular">
+                  Vânzări {signedMoney(pp.realizedSales, base)} · Dividende și cupoane {signedMoney(pp.income, base)}
+                </span>
+              }
+            />
+          </>
+        ) : (
+          <>
         <Kpi
           label="Profit total (realizat + nerealizat)"
           value={
@@ -167,6 +216,8 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
             </span>
           }
         />
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -218,13 +269,13 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
         onChanged={bumpData}
       />
 
-      <BenchmarkCard filter={filter} dataVersion={dataVersion} />
+      <BenchmarkCard filter={filter} dataVersion={dataVersion} range={range} onRange={setRange} />
 
       <GoalsSummary onOpen={() => onNavigate('goals')} />
 
       <Card
         title="Evoluția valorii portofoliului"
-        action={<Segmented size="sm" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: RANGE_LABEL[r] }))} />}
+        action={<Segmented size="sm" value={range} onChange={setRange} options={PERIODS.map((r) => ({ value: r, label: RANGE_LABEL[r] }))} />}
       >
         {history.data && history.data.length > 1 ? (
           <EvolutionChart data={history.data} currency={base} />

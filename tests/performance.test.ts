@@ -12,7 +12,7 @@ import { register } from '@main/services/auth';
 import { createBroker } from '@main/services/brokers';
 import { updateSettings } from '@main/services/settings';
 import { addPurchase, createTransaction } from '@main/services/transactions';
-import { getOverview, getPerformance } from '@main/services/portfolio';
+import { getOverview, getPerformance, getPeriodProfit, rangeStart } from '@main/services/portfolio';
 import { saveHistory, saveQuote } from '@main/prices/store';
 
 let db: Db;
@@ -133,5 +133,40 @@ describe('randamentul nu numără depunerile ca profit', () => {
     expect(performanceLooksOff(2.5, 50, 10000)).toMatch(/diferă enorm/);
     expect(performanceLooksOff(-0.003, -18.35, 9939.36)).toBeNull();
     expect(performanceLooksOff(0.12, 210, 6000)).toBeNull();
+  });
+});
+
+describe('profitul pe perioadă', () => {
+  it('1S și YTD: începutul intervalului', () => {
+    expect(rangeStart('1W', '2020-01-01', TODAY)).toBe('2026-02-23');
+    expect(rangeStart('YTD', '2020-01-01', TODAY)).toBe('2026-01-01');
+    expect(rangeStart('YTD', '2026-02-10', TODAY)).toBe('2026-02-10');
+  });
+
+  it('realizat = vânzări + dividende din perioadă; nerealizat = variația între început și sfârșit', () => {
+    const b = createBroker(db, user.id, { name: 'Broker' });
+    const { asset } = addPurchase(db, user.id, { asset: stock('FFF'), brokerId: b.id, date: '2025-01-02', quantity: 10, price: 100, fee: 0 });
+    createTransaction(db, user.id, { assetId: asset.id, brokerId: b.id, type: 'dividend', date: '2025-06-16', grossAmount: 7, taxWithheld: 0 });
+    createTransaction(db, user.id, { assetId: asset.id, brokerId: b.id, type: 'sell', date: '2026-02-10', quantity: 2, price: 125, fee: 0 });
+    createTransaction(db, user.id, { assetId: asset.id, brokerId: b.id, type: 'dividend', date: '2026-02-15', grossAmount: 5, taxWithheld: 0 });
+    prices('FFF', [['2025-01-02', 100], ['2025-12-01', 120], [TODAY, 130]]);
+
+    const month = getPeriodProfit(db, user.id, '1M', {}, TODAY);
+    expect(month.from).toBe('2026-02-02');
+    expect(month.realizedSales).toBeCloseTo(50, 6);
+    expect(month.income).toBeCloseTo(5, 6);
+    expect(month.realized).toBeCloseTo(55, 6);
+    const priceFeb2 = 120 + (10 * 63) / 91; // liniar între 1 dec. (120) și 2 mar. (130)
+    expect(month.unrealizedStart).toBeCloseTo(10 * (priceFeb2 - 100), 6);
+    expect(month.unrealizedEnd).toBeCloseTo(8 * 30, 6);
+    expect(month.unrealizedChange).toBeCloseTo(240 - 10 * (priceFeb2 - 100), 6);
+
+    const all = getPeriodProfit(db, user.id, 'ALL', {}, TODAY);
+    expect(all.realized).toBeCloseTo(50 + 7 + 5, 6);
+    expect(all.unrealizedStart).toBe(0);
+    expect(all.unrealizedChange).toBeCloseTo(240, 6);
+    const o = getOverview(db, user.id, {}, TODAY);
+    expect(all.realized).toBeCloseTo(o.totals.realized, 6);
+    expect(all.unrealizedEnd).toBeCloseTo(o.totals.unrealized, 6);
   });
 });

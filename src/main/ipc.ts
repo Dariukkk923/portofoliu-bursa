@@ -323,6 +323,7 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
       overview: async (filter) => portfolio.getOverview(db, uid(), filter ?? {}),
       history: async (range, filter) => portfolio.getHistory(db, uid(), range, filter ?? {}),
       performance: async (range, filter) => portfolio.getPerformance(db, uid(), range, filter ?? {}),
+      periodProfit: async (range, filter) => portfolio.getPeriodProfit(db, uid(), range, filter ?? {}),
       risk: async (range, filter) => getRiskReport(db, uid(), range, filter ?? {}),
       async addPurchase(input) {
         const { transaction } = transactions.addPurchase(db, uid(), input);
