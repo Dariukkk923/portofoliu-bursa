@@ -5,7 +5,7 @@
  * personale sau ale indicelui de referință), iar utilizatorul le poate înlocui.
  * Proiecția Monte Carlo se face în interfață (calcul rapid, ca sliderele să răspundă imediat).
  */
-import { ASSET_TYPES, type AssetType, type Goal, type GoalInput, type GoalInputs, type GoalSource, type GoalView, type PortfolioFilter } from '@shared/types';
+import { ASSET_TYPES, type AssetType, type Goal, type GoalInput, type ProjectionInputs, type GoalInputs, type GoalSource, type GoalView, type PortfolioFilter } from '@shared/types';
 import { ASSET_TYPE_LABEL_PLURAL } from '@shared/labels';
 import { benchmarkName } from '@shared/benchmarks';
 import { isIsoDate, daysBetween, todayIso } from '@shared/dates';
@@ -222,4 +222,26 @@ export function listGoals(db: Db, userId: number, today: string = todayIso()): G
       progress: g.targetAmount > 0 ? Math.min(1, Math.max(0, inputs.currentValue / g.targetAmount)) : 0
     };
   });
+}
+
+/** Datele proiecției de pe dashboard: aceleași ca la obiective (valoare, contribuție medie, randament așteptat), pentru filtrul curent. */
+export function projectionInputs(db: Db, userId: number, filter: PortfolioFilter, today: string = todayIso()): ProjectionInputs {
+  const g: Goal = {
+    id: 0,
+    name: '',
+    targetAmount: 1,
+    targetDate: null,
+    portfolioId: filter.portfolioId ?? null,
+    brokerId: filter.brokerId ?? null,
+    assetType: filter.assetType ?? null,
+    monthlyContribution: null,
+    returnSource: 'auto',
+    manualReturn: null,
+    volatilitySource: 'auto',
+    manualVolatility: null,
+    inflation: 0.04
+  };
+  const inputs = goalInputs(db, userId, g, today);
+  const eff = effectiveInputs(g, inputs);
+  return { currency: inputs.currency, currentValue: inputs.currentValue, averageContribution: inputs.averageContribution, annualReturn: eff.annualReturn, returnFrom: eff.returnFrom };
 }

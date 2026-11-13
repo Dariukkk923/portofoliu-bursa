@@ -42,7 +42,7 @@ export function NotificationBell({ onOpenAlerts }: { onOpenAlerts: () => void })
   const markRead = (ids: number[] | null): void => void api.alerts.markRead(ids).then(setOverride).catch(() => undefined);
 
   return (
-    <div ref={root} className="relative max-md:order-2">
+    <div ref={root} className="relative max-md:order-1">
       <button
         type="button"
         aria-label={unread > 0 ? `Notificări: ${unread} necitite` : 'Notificări'}
@@ -52,7 +52,7 @@ export function NotificationBell({ onOpenAlerts }: { onOpenAlerts: () => void })
       >
         <Bell className="size-4" aria-hidden />
         {unread > 0 && (
-          <span data-testid="alerts-unread" className="tabular absolute -top-1.5 -right-1.5 min-w-4.5 rounded-full bg-warn px-1 text-center text-2xs leading-4.5 font-semibold text-accent-ink">
+          <span data-testid="alerts-unread" className="tabular absolute -top-1.5 -right-1.5 min-w-4.5 rounded-full bg-loss px-1 text-center text-2xs leading-4.5 font-semibold text-danger-ink">
             {unread > 99 ? '99+' : unread}
           </span>
         )}

@@ -45,7 +45,13 @@ async function selectPortfolio(name) {
   await page.getByRole('menuitemradio', { name }).click();
 }
 
-const nav = (label) => page.getByRole('navigation').getByRole('button', { name: label, exact: true }).click();
+/** Deschide grupurile din meniul lateral (Portofoliu, Analiză, Rapoarte, Setări), apoi apasă elementul cerut. */
+const nav = async (label) => {
+  const menu = page.getByRole('navigation', { name: 'Meniu principal' });
+  const closed = menu.locator('button[aria-expanded="false"]');
+  while ((await closed.count()) > 0) await closed.first().click();
+  await menu.getByRole('button', { name: label, exact: true }).click();
+};
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
 };
@@ -145,7 +151,10 @@ const login = async (username, password, remember = false) => {
   if (remember) await page.getByLabel('Ține-mă minte pe acest calculator').check();
   await page.getByRole('button', { name: 'Intră în cont' }).click();
 };
-const logout = () => page.getByRole('button', { name: 'Ieșire din cont' }).click();
+const logout = async () => {
+  await page.getByRole('button', { name: 'Meniul contului' }).click();
+  await page.getByRole('menuitem', { name: 'Ieșire din cont' }).click();
+};
 
 try {
   await launch();
@@ -190,7 +199,7 @@ try {
   // 5. Ieșire, apoi contul demo.
   await logout();
   await page.getByRole('button', { name: 'Încearcă contul demo' }).click();
-  await page.getByText('Valoarea totală a portofoliului').waitFor({ timeout: 30000 });
+  await page.getByText('Valoare portofoliu', { exact: true }).waitFor({ timeout: 30000 });
   await page.waitForTimeout(9000); // prețuri + istoric de la Yahoo, dacă există internet
   await shot('06-demo-dashboard');
   await page.locator('main').evaluate((el) => el.scrollTo(0, el.scrollHeight));
@@ -309,7 +318,7 @@ try {
   await page.getByRole('button', { name: 'Înapoi la datele din aplicație' }).waitFor();
   await page.getByRole('radio', { name: /În bani de azi/ }).click();
   await shot('09p-obiective-slider-real');
-  await nav('Panou principal');
+  await nav('Dashboard');
   const goalsCard = page.locator('main').getByRole('heading', { name: 'Obiective' });
   await goalsCard.waitFor({ timeout: 60000 });
   await goalsCard.scrollIntoViewIfNeeded();
@@ -381,8 +390,8 @@ try {
   console.log('backup creat');
 
   await page.getByRole('radio', { name: 'Întunecată' }).click();
-  await nav('Panou principal');
-  await page.getByText('Valoarea totală a portofoliului').waitFor();
+  await nav('Dashboard');
+  await page.getByText('Valoare portofoliu', { exact: true }).waitFor();
   await shot('13-demo-dashboard-dark');
   await nav('Risc');
   await page.getByText('Scor de diversificare').waitFor();

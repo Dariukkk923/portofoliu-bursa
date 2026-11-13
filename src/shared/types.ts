@@ -1339,3 +1339,14 @@ export interface AlertSymbol {
   currency: string;
   held: boolean;
 }
+
+/** Datele proiecției de creștere de pe dashboard (aceleași ca la obiective). */
+export interface ProjectionInputs {
+  currency: string;
+  currentValue: number;
+  /** Media depunerilor nete pe lună, în ultimele 12 luni (poate fi negativă). */
+  averageContribution: number;
+  /** Randamentul anual așteptat, ales ca la obiective (personal, indice sau implicit). */
+  annualReturn: number;
+  returnFrom: 'personal' | 'benchmark' | 'manual';
+}

@@ -85,7 +85,7 @@ function MonthGrid({ year, month, entries }: { year: number; month: number; entr
           <div key={i} className={cx('min-h-18 border-line p-1', i % 7 !== 6 && 'border-r', i < cells.length - 7 && 'border-b', !day && 'bg-surface-2/40')}>
             {day && (
               <>
-                <span className={cx('tabular inline-flex size-5 items-center justify-center rounded-full text-2xs', iso === today ? 'bg-accent font-semibold text-accent-ink' : 'text-ink-3')}>
+                <span className={cx('tabular inline-flex size-5 items-center justify-center rounded-full text-2xs', iso === today ? 'bg-brand font-semibold text-brand-ink' : 'text-ink-3')}>
                   {day}
                 </span>
                 <div className="mt-0.5 space-y-0.5">
