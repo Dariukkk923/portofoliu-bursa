@@ -1,0 +1,12 @@
+name = "portofoliu-proxy"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Originea aplicației web (doar schema și hostul, fără „/” la final): singura care are voie să folosească proxy-ul.
+# Pentru GitHub Pages: https://<contul-tău>.github.io
+[vars]
+ALLOWED_ORIGIN = "https://dariukkk923.github.io"
+
+# Nu există KV, D1, R2, cron, analytics sau loguri: proxy-ul nu păstrează nimic.
+[observability]
+enabled = false

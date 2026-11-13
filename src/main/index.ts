@@ -8,6 +8,10 @@ import { join } from 'node:path';
 import { openDatabase, type Db } from './db/database';
 import { createElectronSecretBox } from './electronSecrets';
 import { registerIpc } from './ipc';
+import { setYahooClientFactory } from './prices/yahoo';
+import { createNodeYahooClient } from './prices/yahooNode';
+
+setYahooClientFactory(createNodeYahooClient);
 
 // Folder de date alternativ (folosit de testele automate, ca să nu atingă datele reale).
 if (process.env.PORTOFOLIU_DATA_DIR) {

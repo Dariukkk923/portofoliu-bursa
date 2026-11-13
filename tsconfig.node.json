@@ -11,5 +11,6 @@
     "tests/**/*",
     "electron.vite.config.mts",
     "vitest.config.mts"
-  ]
+  ],
+  "exclude": ["tests/sqljs.test.ts", "tests/web*.test.ts"]
 }

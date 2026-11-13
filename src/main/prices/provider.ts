@@ -99,11 +99,20 @@ export function isNetworkError(err: unknown): boolean {
   );
 }
 
+/**
+ * Toate cererile de rețea ale providerilor trec pe aici. Versiunea web înlocuiește funcția,
+ * ca să trimită prin proxy cererile blocate de CORS (vezi src/web/net.ts).
+ */
+export let providerFetch: typeof fetch = (input, init) => fetch(input, init);
+export const setProviderFetch = (impl: typeof fetch): void => {
+  providerFetch = impl;
+};
+
 /** Cerere GET care întoarce JSON, cu timeout și erori clasificate. */
 export async function fetchJson(url: string, timeoutMs = 15_000): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });
+    res = await providerFetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });
   } catch (err) {
     throw new ProviderError('network', `Conexiune eșuată: ${(err as Error).message}`);
   }
@@ -125,7 +134,7 @@ const MAX_IMAGE_BYTES = 256 * 1024;
 export async function fetchImage(url: string, timeoutMs = 15_000): Promise<LogoImage | null> {
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: IMAGE_TYPES.join(', ') } });
+    res = await providerFetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: IMAGE_TYPES.join(', ') } });
   } catch (err) {
     throw new ProviderError('network', `Conexiune eșuată: ${(err as Error).message}`);
   }

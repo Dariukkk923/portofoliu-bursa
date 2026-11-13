@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { IPC_CALL, IPC_EVENT, type Api, type AppEvent, type IpcResult } from '@shared/api';
-import type { RefreshResult, User } from '@shared/types';
+import type { AlertEventView, RefreshResult, User } from '@shared/types';
 import { addDays, todayIso } from '@shared/dates';
 import type { Db } from './db/database';
 import type { SecretBox } from './secrets';
@@ -27,6 +27,7 @@ import { moveTransactions, positionTransactionIds, previewMove } from './service
 import * as settings from './services/settings';
 import { exportTransactionsCsv, importTransactionsCsv, looksLikeTransactionsCsv } from './services/csvio';
 import { createBackup, restoreBackup } from './services/backup';
+import type { AppInfo } from '@shared/api';
 import * as imports from './services/statementImport';
 import * as watchlist from './services/watchlist';
 import { getRiskReport } from './services/risk';
@@ -50,20 +51,58 @@ export interface IpcContext {
   getWindow: () => BrowserWindow | null;
 }
 
-export function registerIpc(ctx: IpcContext): { dispose: () => void } {
-  const { db, secrets } = ctx;
-  /** Fișierul în care stă (criptat) tokenul „ține-mă minte”. */
-  const tokenFile = join(ctx.dataDir, 'session.bin');
+export interface FileFilter {
+  name: string;
+  extensions: string[];
+}
+
+/**
+ * Ce diferă între desktop (Electron) și web (PWA): fișiere, notificări, tokenul de sesiune, backup.
+ * Restul backendului (serviciile, prețurile, sesiunea) este același cod pe ambele.
+ */
+export interface Platform {
+  /** Salvează un fișier (dialog pe desktop, descărcare/partajare pe web). Întoarce calea sau numele, sau null dacă s-a renunțat. */
+  saveFile(title: string, defaultName: string, filters: FileFilter[], data: string | Uint8Array): Promise<string | null>;
+  /** Salvează un document HTML ca PDF (desktop) sau îl deschide la tipărire (web). */
+  savePdf(title: string, defaultName: string, html: string): Promise<string | null>;
+  openFile(title: string, filters: FileFilter[]): Promise<{ name: string; data: Uint8Array } | null>;
+  notify(event: AlertEventView, sound: boolean): void;
+  readToken(): string | null;
+  writeToken(token: string | null): void;
+  createBackup(db: Db, userId: number): { data: Uint8Array; transactions: number };
+  restoreBackup(db: Db, userId: number, data: Uint8Array): { brokers: number; assets: number; transactions: number };
+  info(): AppInfo;
+  /** Web: deblochează cheia pentru secretele utilizatorului (parola, sau null la reluarea sesiunii salvate). */
+  unlockSecrets?(userId: number, password: string | null, remember: boolean): Promise<void>;
+  /** Web: șterge cheia din memorie și din dispozitiv la ieșirea din cont. */
+  lockSecrets?(): void;
+  /** Web: pregătește criptarea unei chei API (criptarea din Web Crypto este asincronă). */
+  sealSecret?(plain: string): Promise<void>;
+  /** Web: recriptează secretele după schimbarea parolei. */
+  changeSecretsPassword?(userId: number, oldPassword: string, newPassword: string): Promise<void>;
+  /** Web: ține minte data ultimului backup salvat. */
+  onBackupSaved?(): void;
+}
+
+export interface BackendContext {
+  db: Db;
+  secrets: SecretBox;
+  platform: Platform;
+  send: (event: AppEvent) => void;
+}
+
+export interface Backend {
+  dispatch(path: unknown, args: unknown): Promise<IpcResult<unknown>>;
+  dispose(): void;
+}
+
+export function createBackend(ctx: BackendContext): Backend {
+  const { db, secrets, platform, send } = ctx;
 
   let currentUserId: number | null = null;
   let refreshTimer: NodeJS.Timeout | null = null;
   /** Extrasul citit la previzualizare, păstrat până la import (unul singur, al utilizatorului curent). */
   let pendingImport: imports.ImportSession | null = null;
-
-  const send = (event: AppEvent): void => {
-    const win = ctx.getWindow();
-    if (win && !win.isDestroyed()) win.webContents.send(IPC_EVENT, event);
-  };
 
   const prices = new PriceService({
     db,
@@ -86,18 +125,7 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
     try {
       const fired = alerts.evaluateAlerts(db, userId);
       if (fired.length === 0 || userId !== currentUserId) return;
-      for (const { event, sound } of fired) {
-        if (!Notification.isSupported()) break;
-        const n = new Notification({ title: event.title, body: event.note ? event.body + '\n' + event.note : event.body, silent: !sound });
-        n.on('click', () => {
-          const win = ctx.getWindow();
-          if (!win || win.isDestroyed()) return;
-          if (win.isMinimized()) win.restore();
-          win.show();
-          win.focus();
-        });
-        n.show();
-      }
+      for (const { event, sound } of fired) platform.notify(event, sound);
       send({ type: 'alerts:triggered', payload: fired.map((f) => f.event) });
     } catch (err) {
       // Alertele nu au voie să strice actualizarea prețurilor.
@@ -132,26 +160,18 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
 
   // --- sesiune ------------------------------------------------------------
 
-  const readToken = (): string | null => {
-    try {
-      return existsSync(tokenFile) ? secrets.decrypt(readFileSync(tokenFile, 'utf8')) : null;
-    } catch {
-      return null;
-    }
-  };
+  const readToken = (): string | null => platform.readToken();
 
   const clearToken = (): void => {
     const token = readToken();
     if (token) auth.revokeToken(db, token);
-    rmSync(tokenFile, { force: true });
+    platform.writeToken(null);
   };
 
   const openSession = (user: User, remember: boolean): User => {
     clearToken();
     currentUserId = user.id;
-    if (remember) {
-      writeFileSync(tokenFile, secrets.encrypt(auth.createRememberToken(db, user.id)), { mode: 0o600 });
-    }
+    if (remember) platform.writeToken(auth.createRememberToken(db, user.id));
     startAutoRefresh();
     return user;
   };
@@ -160,49 +180,8 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
     pendingImport = null;
     stopAutoRefresh();
     clearToken();
+    platform.lockSecrets?.();
     currentUserId = null;
-  };
-
-  // --- dialoguri de fișier ------------------------------------------------
-
-  const saveDialog = async (title: string, defaultName: string, filters: Electron.FileFilter[]): Promise<string | null> => {
-    const win = ctx.getWindow();
-    const options = { title, defaultPath: join(app.getPath('documents'), defaultName), filters };
-    const res = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
-    return res.canceled || !res.filePath ? null : res.filePath;
-  };
-
-  const openDialog = async (title: string, filters: Electron.FileFilter[]): Promise<string | null> => {
-    const win = ctx.getWindow();
-    const options: Electron.OpenDialogOptions = { title, filters, properties: ['openFile'] };
-    const res = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
-    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
-  };
-
-  /** Tipărește un document HTML ca PDF, într-o fereastră ascunsă, fără scripturi și fără acces la rețea. */
-  const htmlToPdf = async (html: string): Promise<Buffer> => {
-    const dir = mkdtempSync(join(tmpdir(), 'portofoliu-raport-'));
-    const file = join(dir, 'raport.html');
-    writeFileSync(file, html, 'utf8');
-    const win = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, contextIsolation: true, partition: 'raport-pdf' } });
-    try {
-      // Sesiune separată (nu cea a aplicației): orice cerere în rețea a documentului este blocată.
-      win.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, cb) => cb({ cancel: true }));
-      await win.loadFile(file);
-      return await win.webContents.printToPDF({
-        landscape: true,
-        pageSize: 'A4',
-        printBackground: true,
-        margins: { top: 0.45, bottom: 0.5, left: 0.4, right: 0.4 },
-        displayHeaderFooter: true,
-        headerTemplate: '<span></span>',
-        footerTemplate:
-          '<div style="font-size:8px;width:100%;text-align:center;color:#8a90a0;font-family:Segoe UI,Arial"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
-      });
-    } finally {
-      win.destroy();
-      rmSync(dir, { recursive: true, force: true });
-    }
   };
 
   /**
@@ -261,16 +240,19 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
         const token = readToken();
         const user = token ? auth.userFromToken(db, token) : null;
         if (!user) return null;
+        await platform.unlockSecrets?.(user.id, null, true);
         currentUserId = user.id;
         startAutoRefresh();
         return user;
       },
       async register(input) {
         const user = await auth.register(db, input);
+        await platform.unlockSecrets?.(user.id, input.password, false);
         return openSession(user, false);
       },
       async login(input) {
         const user = await auth.verifyLogin(db, input.username, input.password);
+        await platform.unlockSecrets?.(user.id, input.password, !!input.remember);
         return openSession(user, !!input.remember);
       },
       async loginDemo() {
@@ -281,8 +263,9 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
       },
       async changePassword(oldPassword, newPassword) {
         await auth.changePassword(db, uid(), oldPassword, newPassword);
+        await platform.changeSecretsPassword?.(uid(), oldPassword, newPassword);
         // Toate sesiunile salvate au fost invalidate; cea curentă rămâne deschisă până la ieșire.
-        rmSync(tokenFile, { force: true });
+        platform.writeToken(null);
       }
     },
     brokers: {
@@ -399,17 +382,15 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
       async exportCsv(filters) {
         const userId = uid();
         const list = journal.listJournal(db, userId, filters ?? {});
-        const path = await saveDialog('Exportă jurnalul (CSV)', `jurnal-${todayIso()}.csv`, [{ name: 'CSV', extensions: ['csv'] }]);
+        const path = await platform.saveFile('Exportă jurnalul (CSV)', `jurnal-${todayIso()}.csv`, [{ name: 'CSV', extensions: ['csv'] }], journal.journalCsv(list));
         if (!path) return { canceled: true };
-        writeFileSync(path, journal.journalCsv(list), 'utf8');
         return { canceled: false, path, count: list.entries.length };
       },
       async exportPdf(filters) {
         const userId = uid();
         const list = journal.listJournal(db, userId, filters ?? {});
-        const path = await saveDialog('Salvează jurnalul (PDF)', `jurnal-${todayIso()}.pdf`, [{ name: 'PDF', extensions: ['pdf'] }]);
+        const path = await platform.savePdf('Salvează jurnalul (PDF)', `jurnal-${todayIso()}.pdf`, journal.journalHtml(list, 'Jurnal de investiții'));
         if (!path) return { canceled: true };
-        writeFileSync(path, await htmlToPdf(journal.journalHtml(list, 'Jurnal de investiții')));
         return { canceled: false, path, count: list.entries.length };
       }
     },
@@ -418,17 +399,15 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
       async exportCsv(year, portfolioId) {
         const userId = uid();
         const report = await prepareTaxReport(db, userId, Number(year), portfolioId == null ? null : Number(portfolioId));
-        const path = await saveDialog('Exportă raportul fiscal (CSV)', `raport-fiscal-${report.year}.csv`, [{ name: 'CSV', extensions: ['csv'] }]);
+        const path = await platform.saveFile('Exportă raportul fiscal (CSV)', `raport-fiscal-${report.year}.csv`, [{ name: 'CSV', extensions: ['csv'] }], taxReportCsv(report));
         if (!path) return { canceled: true };
-        writeFileSync(path, taxReportCsv(report), 'utf8');
         return { canceled: false, path, count: report.details.length };
       },
       async exportPdf(year, portfolioId) {
         const userId = uid();
         const report = await prepareTaxReport(db, userId, Number(year), portfolioId == null ? null : Number(portfolioId));
-        const path = await saveDialog('Salvează raportul fiscal (PDF)', `raport-fiscal-${report.year}.pdf`, [{ name: 'PDF', extensions: ['pdf'] }]);
+        const path = await platform.savePdf('Salvează raportul fiscal (PDF)', `raport-fiscal-${report.year}.pdf`, taxReportHtml(report));
         if (!path) return { canceled: true };
-        writeFileSync(path, await htmlToPdf(taxReportHtml(report)));
         return { canceled: false, path, count: report.details.length };
       }
     },
@@ -451,10 +430,9 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
       positionIds: async (portfolioId, assetId, brokerId) => positionTransactionIds(db, uid(), Number(portfolioId), Number(assetId), Number(brokerId)),
       async exportCsv(filters) {
         const userId = uid();
-        const path = await saveDialog('Exportă tranzacțiile', `tranzactii-${todayIso()}.csv`, [{ name: 'CSV', extensions: ['csv'] }]);
-        if (!path) return { canceled: true };
         const { csv, count } = exportTransactionsCsv(db, userId, filters ?? {});
-        writeFileSync(path, csv, 'utf8');
+        const path = await platform.saveFile('Exportă tranzacțiile', `tranzactii-${todayIso()}.csv`, [{ name: 'CSV', extensions: ['csv'] }], csv);
+        if (!path) return { canceled: true };
         return { canceled: false, path, count };
       }
     },
@@ -469,6 +447,7 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
         return next;
       },
       async setApiKey(provider, key) {
+        if (key && key.trim()) await platform.sealSecret?.(key.trim());
         settings.setApiKey(db, secrets, uid(), provider, key);
         return settings.getSettings(db, uid());
       }
@@ -482,25 +461,26 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
     imports: {
       async open(options) {
         const userId = uid();
-        const path = await openDialog('Alege extrasul de importat', [
+        const file = await platform.openFile('Alege extrasul de importat', [
           { name: 'Extras de la broker (Excel sau CSV)', extensions: ['xlsx', 'csv', 'txt', 'tsv'] }
         ]);
-        if (!path) return { canceled: true };
+        if (!file) return { canceled: true };
         // Fișierul este citit local; nu este trimis nicăieri și nu este păstrat după import.
-        const data = readFileSync(path);
+        const data = Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data);
+        const fileName = file.name;
 
         // Un CSV exportat din aplicație (pagina Tranzacții) se importă direct, ca lot.
         if (!looksLikeZip(data)) {
           const text = data.toString('utf8');
           if (looksLikeTransactionsCsv(text)) {
-            const csv = importTransactionsCsv(db, userId, text, basename(path));
+            const csv = importTransactionsCsv(db, userId, text, fileName);
             if (csv.imported > 0) void refreshPrices(false).catch(() => undefined);
             return { canceled: false, csv };
           }
         }
 
         const tables = imports.readImportFile(data);
-        const session = imports.openImport(db, userId, tables, basename(path), randomBytes(16).toString('hex'));
+        const session = imports.openImport(db, userId, tables, fileName, randomBytes(16).toString('hex'));
         pendingImport = session;
         return { canceled: false, session: await imports.previewImport(db, userId, session, options ?? {}, lookup(userId)) };
       },
@@ -571,30 +551,31 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
     backup: {
       async create() {
         const userId = uid();
-        const path = await saveDialog('Salvează backup-ul', `portofoliu-backup-${todayIso()}.db`, [
+        const { data, transactions: count } = platform.createBackup(db, userId);
+        const path = await platform.saveFile('Salvează backup-ul', `portofoliu-backup-${todayIso()}.db`, [
           { name: 'Backup Portofoliu Bursa', extensions: ['db'] }
-        ]);
+        ], data);
         if (!path) return { canceled: true };
-        const { transactions: count } = createBackup(db, userId, path);
+        platform.onBackupSaved?.();
         return { canceled: false, path, count };
       },
       async restore() {
         const userId = uid();
-        const path = await openDialog('Restaurează din backup', [{ name: 'Backup Portofoliu Bursa', extensions: ['db'] }]);
-        if (!path) return { canceled: true };
-        const counts = restoreBackup(db, userId, path);
+        const file = await platform.openFile('Restaurează din backup', [{ name: 'Backup Portofoliu Bursa', extensions: ['db'] }]);
+        if (!file) return { canceled: true };
+        const counts = platform.restoreBackup(db, userId, file.data);
         startAutoRefresh();
         send({ type: 'data:changed' });
-        return { canceled: false, path, count: counts.transactions };
+        return { canceled: false, path: file.name, count: counts.transactions };
       }
     },
     app: {
-      info: async () => ({ version: app.getVersion(), platform: process.platform, dataPath: ctx.dataDir })
+      info: async () => platform.info()
     }
   };
 
-  // Un singur canal IPC: „grup.metodă” + argumente. Căile necunoscute sunt respinse.
-  ipcMain.handle(IPC_CALL, async (_event, path: unknown, args: unknown): Promise<IpcResult<unknown>> => {
+  // Un singur canal: „grup.metodă” + argumente. Căile necunoscute sunt respinse.
+  const dispatch: Backend['dispatch'] = async (path, args) => {
     try {
       const [group, method] = String(path).split('.');
       const target = (api as unknown as Record<string, Record<string, (...a: unknown[]) => Promise<unknown>>>)[group];
@@ -606,11 +587,137 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
       console.error(`[ipc] ${String(path)} a eșuat:`, err);
       return { ok: false, error: 'A apărut o eroare neașteptată. Încearcă din nou.' };
     }
-  });
+  };
+
+  return { dispatch, dispose: stopAutoRefresh };
+}
+
+// --- partea de desktop (Electron) -----------------------------------------
+
+function electronPlatform(ctx: IpcContext): Platform {
+  const { secrets } = ctx;
+  /** Fișierul în care stă (criptat) tokenul „ține-mă minte”. */
+  const tokenFile = join(ctx.dataDir, 'session.bin');
+
+  const saveDialog = async (title: string, defaultName: string, filters: Electron.FileFilter[]): Promise<string | null> => {
+    const win = ctx.getWindow();
+    const options = { title, defaultPath: join(app.getPath('documents'), defaultName), filters };
+    const res = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+    return res.canceled || !res.filePath ? null : res.filePath;
+  };
+
+  const openDialog = async (title: string, filters: Electron.FileFilter[]): Promise<string | null> => {
+    const win = ctx.getWindow();
+    const options: Electron.OpenDialogOptions = { title, filters, properties: ['openFile'] };
+    const res = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
+  };
+
+  /** Tipărește un document HTML ca PDF, într-o fereastră ascunsă, fără scripturi și fără acces la rețea. */
+  const htmlToPdf = async (html: string): Promise<Buffer> => {
+    const dir = mkdtempSync(join(tmpdir(), 'portofoliu-raport-'));
+    const file = join(dir, 'raport.html');
+    writeFileSync(file, html, 'utf8');
+    const win = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, contextIsolation: true, partition: 'raport-pdf' } });
+    try {
+      // Sesiune separată (nu cea a aplicației): orice cerere în rețea a documentului este blocată.
+      win.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, cb) => cb({ cancel: true }));
+      await win.loadFile(file);
+      return await win.webContents.printToPDF({
+        landscape: true,
+        pageSize: 'A4',
+        printBackground: true,
+        margins: { top: 0.45, bottom: 0.5, left: 0.4, right: 0.4 },
+        displayHeaderFooter: true,
+        headerTemplate: '<span></span>',
+        footerTemplate:
+          '<div style="font-size:8px;width:100%;text-align:center;color:#8a90a0;font-family:Segoe UI,Arial"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
+      });
+    } finally {
+      win.destroy();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
 
   return {
+    async saveFile(title, defaultName, filters, data) {
+      const path = await saveDialog(title, defaultName, filters);
+      if (!path) return null;
+      if (typeof data === 'string') writeFileSync(path, data, 'utf8');
+      else writeFileSync(path, data);
+      return path;
+    },
+    async savePdf(title, defaultName, html) {
+      const path = await saveDialog(title, defaultName, [{ name: 'PDF', extensions: ['pdf'] }]);
+      if (!path) return null;
+      writeFileSync(path, await htmlToPdf(html));
+      return path;
+    },
+    async openFile(title, filters) {
+      const path = await openDialog(title, filters);
+      return path ? { name: basename(path), data: readFileSync(path) } : null;
+    },
+    notify(event, sound) {
+      if (!Notification.isSupported()) return;
+      const n = new Notification({ title: event.title, body: event.note ? event.body + '\n' + event.note : event.body, silent: !sound });
+      n.on('click', () => {
+        const win = ctx.getWindow();
+        if (!win || win.isDestroyed()) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      });
+      n.show();
+    },
+    readToken() {
+      try {
+        return existsSync(tokenFile) ? secrets.decrypt(readFileSync(tokenFile, 'utf8')) : null;
+      } catch {
+        return null;
+      }
+    },
+    writeToken(token) {
+      if (token === null) rmSync(tokenFile, { force: true });
+      else writeFileSync(tokenFile, secrets.encrypt(token), { mode: 0o600 });
+    },
+    createBackup(db, userId) {
+      const dir = mkdtempSync(join(tmpdir(), 'portofoliu-backup-'));
+      try {
+        const file = join(dir, 'backup.db');
+        const { transactions } = createBackup(db, userId, file);
+        return { data: readFileSync(file), transactions };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    restoreBackup(db, userId, data) {
+      const dir = mkdtempSync(join(tmpdir(), 'portofoliu-restore-src-'));
+      try {
+        const file = join(dir, 'backup.db');
+        writeFileSync(file, data);
+        return restoreBackup(db, userId, file);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    info: () => ({ version: app.getVersion(), platform: process.platform, dataPath: ctx.dataDir })
+  };
+}
+
+export function registerIpc(ctx: IpcContext): { dispose: () => void } {
+  const backend = createBackend({
+    db: ctx.db,
+    secrets: ctx.secrets,
+    platform: electronPlatform(ctx),
+    send: (event) => {
+      const win = ctx.getWindow();
+      if (win && !win.isDestroyed()) win.webContents.send(IPC_EVENT, event);
+    }
+  });
+  ipcMain.handle(IPC_CALL, (_event, path: unknown, args: unknown) => backend.dispatch(path, args));
+  return {
     dispose: () => {
-      stopAutoRefresh();
+      backend.dispose();
       ipcMain.removeHandler(IPC_CALL);
     }
   };

@@ -9,3 +9,4 @@ coverage/
 .smoke/
 .screens/
 *.tsbuildinfo
+dist-web/

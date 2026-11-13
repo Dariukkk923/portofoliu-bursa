@@ -13,7 +13,10 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.pwa.json",
+    "build:web": "vite build -c vite.web.config.mts",
+    "preview:web": "vite preview -c vite.web.config.mts --port 4173",
+    "icons:web": "node scripts/make-pwa-icons.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "npm run typecheck && electron-vite build",

@@ -7,6 +7,7 @@ import { BENCHMARKS } from '@shared/benchmarks';
 import { api, errorMessage } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
 import { Badge, Button, Card, ConfirmDialog, Field, Input, Notice, Segmented, Select } from '../components/ui';
+import { WebSettingsExtras } from '@/webExtras';
 
 /** Un rând de setare: etichetă și explicație în stânga, controlul în dreapta. */
 function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
@@ -275,6 +276,8 @@ export function SettingsPage() {
           </p>
         )}
       </Card>
+
+      <WebSettingsExtras />
 
       {confirmRestore && (
         <ConfirmDialog

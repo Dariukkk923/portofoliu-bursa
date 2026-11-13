@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src/web/**/*", "src/main/**/*", "src/shared/**/*", "src/renderer/src/**/*", "tests/sqljs.test.ts", "tests/web*.test.ts", "vite.web.config.mts"],
+  "exclude": ["src/main/index.ts", "src/preload/**/*"]
+}
