@@ -34,7 +34,9 @@ const PAGES = [
   ['import', 'Import'],
   ['portfolios', 'Portofolii'],
   ['brokers', 'Brokeri'],
-  ['settings', 'Setări']
+  ['settings', 'Setări'],
+  ['news', 'Știri'],
+  ['alerts', 'Alerte']
 ];
 
 const app = await electron.launch({ args: ['.'], env: { ...process.env, PORTOFOLIU_DATA_DIR: dataDir } });

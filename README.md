@@ -11,13 +11,14 @@ Aplicație desktop pentru monitorizarea investițiilor la bursă: acțiuni, ETF-
 - Alerte personalizate: preț, mișcare zilnică, profit pe poziție, dividende, rezultate financiare și altele
 - Prețuri actualizate automat (Yahoo Finance, fără cheie; opțional Alpha Vantage, Twelve Data, Polygon)
 - Mai mulți utilizatori pe același calculator, fiecare cu datele lui
-- Import/export CSV, backup și restaurare, temă luminoasă și întunecată
+- Import/export CSV, backup și restaurare, temă întunecată (implicit) și luminoasă
+- Versiune pentru telefon (iPhone/Android), care se instalează din browser, fără App Store
 
 ![Panoul principal](docs/capturi/dashboard.png)
 
-| Portofoliu pe broker | Istoricul tranzacțiilor | Temă întunecată |
-|---|---|---|
-| ![Portofoliu](docs/capturi/portofoliu.png) | ![Tranzacții](docs/capturi/tranzactii.png) | ![Temă întunecată](docs/capturi/dashboard-intunecat.png) |
+| Portofoliu pe broker | Istoricul tranzacțiilor | Temă luminoasă | Pe telefon |
+|---|---|---|---|
+| ![Portofoliu](docs/capturi/portofoliu.png) | ![Tranzacții](docs/capturi/tranzactii.png) | ![Temă luminoasă](docs/capturi/dashboard-luminos.png) | ![Pe telefon](docs/capturi/telefon.png) |
 
 *Capturile sunt din contul demo (date de test).*
 
@@ -198,6 +199,27 @@ Dezinstalarea aplicației nu șterge acest folder. Fișierul bazei de date nu es
 
 ---
 
+### 10. Pe telefon (iPhone și Android)
+
+Aplicația are și o versiune care rulează în browserul telefonului și se poate pune pe ecranul principal, ca o aplicație obișnuită.
+
+1. Deschide pe telefon adresa **https://dariukkk923.github.io/portofoliu-bursa/** (în Safari pe iPhone).
+2. Apasă **Partajare → Adaugă pe ecranul principal**.
+3. Deschide aplicația de pe ecranul principal și intră în cont (sau încearcă contul demo).
+4. Pentru prețurile de la Yahoo, cursurile BNR și logo-uri: **Setări → Versiunea pentru telefon** → lipește adresa proxy-ului (vezi mai jos). Fără proxy merg doar providerii cu cheie API (Alpha Vantage, Twelve Data, Polygon) și datele salvate.
+
+Bine de știut:
+
+- **Datele stau doar pe telefon**, în browser, separat de calculator. Dacă ștergi datele site-ului din Safari, se pierd. Fă des **backup** (Setări → Backup): fișierul se poate trimite pe email sau salva în Fișiere și se poate restaura și în aplicația de pe calculator.
+- Merge și **fără internet**, cu ultimele prețuri salvate.
+- Alertele apar în clopoțel cât timp aplicația e deschisă (nu ca notificări pe ecranul blocat).
+- Situațiile financiare de la Yahoo nu sunt disponibile pe telefon; raportările folosesc Polygon sau Alpha Vantage, dacă ai cheie.
+
+**Pentru proprietarul proiectului (o singură dată):**
+
+1. **Proxy (Cloudflare Workers, gratuit):** `cd proxy && npx wrangler login && npx wrangler deploy`. În `proxy/wrangler.toml`, `ALLOWED_ORIGIN` trebuie să fie adresa site-ului (`https://dariukkk923.github.io`). Proxy-ul nu salvează și nu loghează nimic. Detalii în `proxy/README.md`.
+2. **GitHub Pages:** Settings → Pages → Source = **GitHub Actions**. Fiecare push pe `main` sau tag `v*` publică versiunea web (`.github/workflows/pages.yml`).
+
 ## Partea 2 — Pentru dezvoltatori
 
 ### Tehnologii
@@ -216,6 +238,9 @@ npm run typecheck  # verifică tipurile (procesul principal + interfața)
 npm run build      # typecheck + build de producție în out/
 npm start          # pornește build-ul de producție din out/
 npm run smoke      # test „de fum” al aplicației construite (capturi în .smoke/)
+npm run screens    # capturi ale tuturor ecranelor, desktop și telefon (în .screens/)
+npm run build:web  # versiunea pentru telefon (PWA) în dist-web/
+npm run preview:web # o servește local, pentru probă
 ```
 
 `better-sqlite3` vine cu binare precompilate (N-API) pentru Windows, macOS și Linux, compatibile atât cu Node, cât și cu Electron: nu este nevoie de compilator C++ și nici de `electron-rebuild`. Fișierul `.npmrc` al proiectului dezactivează scripturile de instalare ale dependențelor (`ignore-scripts=true`), pentru că altfel npm ar încerca inutil o compilare cu `node-gyp`, care eșuează pe calculatoarele fără Visual Studio / Xcode.
