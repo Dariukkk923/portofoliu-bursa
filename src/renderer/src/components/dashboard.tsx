@@ -208,14 +208,14 @@ export function ReturnBox({ label, value, tip }: { label: string; value: number 
   );
 }
 
-function Bar({ label, value, tone }: { label: string; value: number | null; tone: 'portfolio' | 'index' }) {
+function Bar({ label, value, fill, tone }: { label: string; value: number | null; /** Cât din bară se umple (0–1), pe aceeași scară pentru ambele bare. */ fill: number; tone: 'portfolio' | 'index' }) {
   return (
     <div className="grid grid-cols-[5.5rem_1fr_4.5rem] items-center gap-3 text-body max-sm:grid-cols-[5rem_1fr_4.5rem]">
       <span className="truncate text-ink">{label}</span>
       <span className="h-2.5 overflow-hidden rounded-full bg-surface-2" role="presentation">
         <span
           className={cx('block h-full rounded-full transition-[width] duration-700', tone === 'index' ? 'bg-ink-3' : value !== null && value < 0 ? 'bg-loss' : 'bg-gain')}
-          style={{ width: `${value === null ? 0 : Math.max(2, Math.min(100, Math.abs(value) * 100))}%` }}
+          style={{ width: `${value === null ? 0 : Math.max(2, Math.min(100, fill * 100))}%` }}
         />
       </span>
       {tone === 'portfolio' ? (
@@ -238,11 +238,11 @@ export function VsBenchmark({ perf }: { perf: PerformanceData | null }) {
   }
   // Scara: cea mai mare valoare ocupă ~90% din bară.
   const top = Math.max(Math.abs(b.portfolioReturn), Math.abs(b.return), 0.0001);
-  const scaled = (v: number): number => (v / top) * 0.9;
+  const scaled = (v: number): number => (Math.abs(v) / top) * 0.9;
   return (
     <div className="space-y-3">
-      <Bar label="Portofoliu" value={scaled(b.portfolioReturn)} tone="portfolio" />
-      <Bar label={name} value={scaled(b.return)} tone="index" />
+      <Bar label="Portofoliu" value={b.portfolioReturn} fill={scaled(b.portfolioReturn)} tone="portfolio" />
+      <Bar label={name} value={b.return} fill={scaled(b.return)} tone="index" />
       <span className="sr-only">
         Portofoliu {signedPercent(b.portfolioReturn)}, {name} {signedPercent(b.return)}
       </span>

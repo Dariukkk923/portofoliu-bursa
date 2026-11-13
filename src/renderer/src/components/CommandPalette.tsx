@@ -181,6 +181,7 @@ export function CommandPalette({
             aria-expanded
             aria-controls="palette-list"
             autoComplete="off"
+            style={{ outline: "none" }}
             className="h-13 min-w-0 flex-1 bg-transparent text-md text-ink placeholder:text-ink-3 focus:outline-none max-md:h-14 max-md:text-base"
           />
           {searching && <Spinner className="size-4" />}
@@ -201,7 +202,7 @@ export function CommandPalette({
                   <span className={cx('flex size-6 shrink-0 items-center justify-center', i === active ? 'text-brand-ink' : 'text-ink-3')}>{e.icon}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-body font-semibold">{e.title}</span>
-                    {e.hint && <span className={cx('block truncate text-xs', i === active ? 'text-brand-ink/80' : 'text-ink-3')}>{e.hint}</span>}
+                    {e.hint && <span className={cx('block truncate text-xs', i === active ? 'text-brand-ink/90' : 'text-ink-3')}>{e.hint}</span>}
                   </span>
                 </button>
                 {e.group === 'Simboluri' && (
