@@ -48,9 +48,9 @@ export function NotificationBell({ onOpenAlerts }: { onOpenAlerts: () => void })
         aria-label={unread > 0 ? `Notificări: ${unread} necitite` : 'Notificări'}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="relative flex size-9.5 items-center justify-center rounded-lg border border-line bg-surface text-ink-2 transition hover:bg-surface-2 hover:text-ink max-md:size-11"
+        className="relative flex size-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink-2 transition hover:border-brand/50 hover:text-ink md:size-10.5"
       >
-        <Bell className="size-4" aria-hidden />
+        <Bell className="size-4.5" aria-hidden />
         {unread > 0 && (
           <span data-testid="alerts-unread" className="tabular absolute -top-1.5 -right-1.5 min-w-4.5 rounded-full bg-loss px-1 text-center text-2xs leading-4.5 font-semibold text-danger-ink">
             {unread > 99 ? '99+' : unread}

@@ -26,11 +26,11 @@ export function Panel({ title, action, children, className }: { title?: ReactNod
 }
 
 /** Iconița „i” cu o explicație la hover, la focus sau la apăsare (pe telefon). */
-export function InfoTip({ text, label }: { text: string; label: string }) {
+export function InfoTip({ text, label, className }: { text: string; label: string; className?: string }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
-    <span className="relative inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span className={cx("relative inline-flex", className)} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       <button
         type="button"
         aria-label={label}

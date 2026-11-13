@@ -184,7 +184,7 @@ export function CommandPalette({
             className="h-13 min-w-0 flex-1 bg-transparent text-md text-ink placeholder:text-ink-3 focus:outline-none max-md:h-14 max-md:text-base"
           />
           {searching && <Spinner className="size-4" />}
-          <kbd className="rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-ink-2 max-md:hidden">Esc</kbd>
+          <kbd className="rounded-md font-sans border border-line bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-ink-2 max-md:hidden">Esc</kbd>
         </div>
         <ul id="palette-list" role="listbox" ref={list} className="min-h-0 flex-1 overflow-y-auto p-2">
           {entries.map((e, i) => (

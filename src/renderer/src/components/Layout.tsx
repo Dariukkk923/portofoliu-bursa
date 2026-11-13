@@ -339,7 +339,9 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
 
   // O pagină nouă începe de sus, nu de unde a rămas cea veche.
   const mainRef = useRef<HTMLElement>(null);
-  useEffect(() => mainRef.current?.scrollTo(0, 0), [page]);
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0);
+  }, [page]);
 
   // Ctrl/⌘ K deschide căutarea de oriunde.
   useEffect(() => {
@@ -444,7 +446,7 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
         <header className="shrink-0 border-b border-line bg-surface dark:bg-bg">
           <div className="pt-safe md:hidden" />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:min-h-18 md:flex-nowrap md:px-6">
-            <h1 className="min-w-0 truncate text-xl font-bold tracking-tight text-ink max-md:flex-1 md:mr-2">{TITLES[page]}</h1>
+            <h1 className="min-w-0 text-xl font-bold tracking-tight text-ink max-md:flex-1 max-md:text-lg max-md:leading-tight md:mr-2 md:truncate">{TITLES[page]}</h1>
             {!OWN_SCOPE_PAGES.includes(page) && (
               <div className="max-md:order-3">
                 <PortfolioSwitcher onManage={() => go('portfolios')} />
@@ -460,7 +462,7 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
             >
               <Search className="size-4.5 shrink-0 text-ink-2" aria-hidden />
               <span className="min-w-0 flex-1 truncate">Caută simbol, companie sau ETF…</span>
-              <kbd className="rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-ink-2">{SHORTCUT_LABEL}</kbd>
+              <kbd className="rounded-md font-sans border border-line bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-ink-2">{SHORTCUT_LABEL}</kbd>
             </button>
             <button type="button" onClick={() => setPalette(true)} aria-label="Caută" className={cx(TOP_BUTTON, 'md:hidden')}>
               <Search className="size-4.5" aria-hidden />

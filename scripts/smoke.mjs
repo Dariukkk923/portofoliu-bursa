@@ -521,7 +521,9 @@ try {
   await app.close();
   await launch();
   await page.getByRole('navigation').waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'Meniul contului' }).click(); // numele contului e în meniul avatarului
   check((await page.getByText('ana', { exact: true }).count()) > 0, 'Sesiunea „ține-mă minte” nu a fost restaurată.');
+  await page.keyboard.press('Escape');
   console.log('ține-mă minte: sesiunea a fost restaurată după repornire');
   await shot('15-sesiune-restaurata');
 

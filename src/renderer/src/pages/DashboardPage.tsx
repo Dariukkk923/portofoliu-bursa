@@ -115,7 +115,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
 
       {/* Rândul 1: cifrele principale */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1fr]">
-        <div className="card-hover flex min-w-0 items-center gap-4 rounded-xl border border-line bg-surface px-5 py-4 shadow-card sm:col-span-2 lg:col-span-1">
+        <div className="card-hover relative flex min-w-0 items-center gap-4 rounded-xl border border-line bg-surface px-5 py-4 shadow-card sm:col-span-2 lg:col-span-1">
           <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent ring-1 ring-brand/30 max-sm:size-10" aria-hidden>
             <Layers className="size-6" />
           </span>
@@ -129,7 +129,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
                 <AnimatedNumber value={periodGain} format={(v) => signedMoney(v, base)} />
               </Pnl>
               {periodPct !== null && <Pnl value={periodPct}>({signedPercent(periodPct)})</Pnl>}
-              <InfoTip label="Ce arată variația" text={`Câștigul sau pierderea în perioada aleasă (${range === 'ALL' ? 'de la început' : RANGE_LABEL[range]}): profit realizat plus variația celui nerealizat. Procentul este randamentul TWR al perioadei.`} />
+              <InfoTip className="max-sm:absolute max-sm:top-1 max-sm:right-1" label="Ce arată variația" text={`Câștigul sau pierderea în perioada aleasă (${range === 'ALL' ? 'de la început' : RANGE_LABEL[range]}): profit realizat plus variația celui nerealizat. Procentul este randamentul TWR al perioadei.`} />
             </div>
           </div>
         </div>
