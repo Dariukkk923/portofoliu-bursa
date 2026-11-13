@@ -56,6 +56,7 @@ import type {
   Settings,
   SettingsUpdate,
   SymbolQuote,
+  ProjectionInputs,
   SymbolSearchResult,
   TaxReport,
   Transaction,
@@ -136,6 +137,8 @@ export interface Api {
     performance(range: HistoryRange, filter: PortfolioFilter): Promise<PerformanceData>;
     /** Profitul realizat și variația celui nerealizat pe perioada aleasă. */
     periodProfit(range: HistoryRange, filter: PortfolioFilter): Promise<PeriodProfit>;
+    /** Datele proiecției de pe dashboard: valoare, contribuție lunară medie, randament așteptat. */
+    projection(filter: PortfolioFilter): Promise<ProjectionInputs>;
     /** Ecranul „Risc”: concentrare, expuneri, volatilitate, scădere maximă, beta, scor de diversificare. */
     risk(range: HistoryRange, filter: PortfolioFilter): Promise<RiskReport>;
     addPurchase(input: PurchaseInput): Promise<Transaction>;

@@ -355,6 +355,7 @@ export function createBackend(ctx: BackendContext): Backend {
       history: async (range, filter) => portfolio.getHistory(db, uid(), range, filter ?? {}),
       performance: async (range, filter) => portfolio.getPerformance(db, uid(), range, filter ?? {}),
       periodProfit: async (range, filter) => portfolio.getPeriodProfit(db, uid(), range, filter ?? {}),
+      projection: async (filter) => goals.projectionInputs(db, uid(), filter ?? {}),
       risk: async (range, filter) => getRiskReport(db, uid(), range, filter ?? {}),
       async addPurchase(input) {
         const { transaction } = transactions.addPurchase(db, uid(), input);

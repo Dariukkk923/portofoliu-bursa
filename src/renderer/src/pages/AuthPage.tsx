@@ -62,7 +62,7 @@ export function AuthPage() {
     <div className="flex min-h-full items-center justify-center p-6">
       <div className="w-full max-w-[420px]">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex size-12 items-center justify-center rounded-xl bg-accent text-accent-ink">
+          <div className="mb-3 flex size-12 items-center justify-center rounded-xl bg-brand text-brand-ink">
             <ChartNoAxesCombined className="size-6" aria-hidden />
           </div>
           <h1 className="text-xl font-semibold text-ink">Portofoliu Bursa</h1>

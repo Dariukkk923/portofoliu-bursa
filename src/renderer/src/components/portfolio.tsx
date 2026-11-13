@@ -147,7 +147,7 @@ export function PortfolioSwitcher({ onManage }: { onManage: () => void }) {
         aria-expanded={open}
         aria-label="Alege portofoliul"
         onClick={() => setOpen((o) => !o)}
-        className="flex h-9.5 max-w-60 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-sm font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+        className="flex h-9.5 max-w-60 items-center gap-2 rounded-xl border border-line bg-surface px-2.5 max-md:h-11 text-sm font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
       >
         {currentPortfolio ? (
           <PortfolioIcon color={currentPortfolio.color} icon={currentPortfolio.icon} size="sm" />
