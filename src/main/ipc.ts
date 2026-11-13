@@ -6,7 +6,7 @@
  * utilizator autentificat, și transmite serviciilor id-ul din sesiune — nu
  * unul primit de la interfață. Așa se garantează izolarea datelor pe utilizator.
  */
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,6 +33,7 @@ import { getRiskReport } from './services/risk';
 import * as dividends from './services/dividends';
 import * as journal from './services/journal';
 import * as goals from './services/goals';
+import * as alerts from './services/alerts';
 import { runSimulation, simulationStart } from './services/simulator';
 import { simInstrumentType } from '@shared/simulator';
 import { prepareTaxReport, taxReportCsv, taxReportHtml } from './services/taxReport';
@@ -80,9 +81,35 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
 
   // --- actualizarea automată a prețurilor ---------------------------------
 
+  /** Evaluează alertele utilizatorului și anunță declanșările (notificare nativă + eveniment către interfață). */
+  const runAlerts = (userId: number): void => {
+    try {
+      const fired = alerts.evaluateAlerts(db, userId);
+      if (fired.length === 0 || userId !== currentUserId) return;
+      for (const { event, sound } of fired) {
+        if (!Notification.isSupported()) break;
+        const n = new Notification({ title: event.title, body: event.note ? event.body + '\n' + event.note : event.body, silent: !sound });
+        n.on('click', () => {
+          const win = ctx.getWindow();
+          if (!win || win.isDestroyed()) return;
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+        });
+        n.show();
+      }
+      send({ type: 'alerts:triggered', payload: fired.map((f) => f.event) });
+    } catch (err) {
+      // Alertele nu au voie să strice actualizarea prețurilor.
+      console.error('[ipc] evaluarea alertelor a eșuat:', err);
+    }
+  };
+
   const refreshPrices = async (force: boolean): Promise<RefreshResult> => {
     const userId = uid();
     const result = await prices.refresh(userId, { force });
+    // Alertele se evaluează după fiecare actualizare de prețuri, cât timp aplicația rulează.
+    runAlerts(userId);
     if (userId === currentUserId) send({ type: 'data:changed' });
     return result;
   };
@@ -499,6 +526,47 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
       },
       templates: async () => imports.listImportTemplates(db, uid()),
       deleteTemplate: async (id) => imports.deleteImportTemplate(db, uid(), Number(id))
+    },
+    alerts: {
+      list: async (portfolioId) => alerts.listAlerts(db, uid(), portfolioId == null ? null : Number(portfolioId)),
+      async create(input) {
+        const userId = uid();
+        const created = alerts.createAlert(db, userId, input);
+        runAlerts(userId); // dacă condiția e deja îndeplinită, anunțul vine imediat
+        return alerts.getAlert(db, userId, created.id);
+      },
+      async update(id, input) {
+        const userId = uid();
+        alerts.updateAlert(db, userId, Number(id), input);
+        runAlerts(userId);
+        return alerts.getAlert(db, userId, Number(id));
+      },
+      async setEnabled(id, enabled) {
+        const userId = uid();
+        alerts.setAlertEnabled(db, userId, Number(id), !!enabled);
+        if (enabled) runAlerts(userId);
+        return alerts.getAlert(db, userId, Number(id));
+      },
+      snooze: async (id, minutes) => alerts.snoozeAlert(db, uid(), Number(id), minutes == null ? null : Number(minutes)),
+      remove: async (id) => alerts.deleteAlert(db, uid(), Number(id)),
+      async fromJournal(entryId) {
+        const userId = uid();
+        const created = alerts.createAlertFromJournal(db, userId, Number(entryId));
+        runAlerts(userId);
+        return alerts.getAlert(db, userId, created.id);
+      },
+      symbols: async () => alerts.listAlertSymbols(db, uid()),
+      center: async () => alerts.listAlertEvents(db, uid()),
+      async markRead(ids) {
+        const userId = uid();
+        alerts.markAlertEventsRead(db, userId, ids == null ? null : ids.map(Number));
+        return alerts.listAlertEvents(db, userId);
+      },
+      async clearHistory() {
+        const userId = uid();
+        alerts.clearAlertEvents(db, userId);
+        return alerts.listAlertEvents(db, userId);
+      }
     },
     backup: {
       async create() {

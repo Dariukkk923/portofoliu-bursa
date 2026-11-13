@@ -40,6 +40,7 @@ export const api: Api = {
   journal: group('journal'),
   simulator: group('simulator'),
   goals: group('goals'),
+  alerts: group('alerts'),
   backup: group('backup'),
   app: group('app')
 };
