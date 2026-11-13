@@ -19,6 +19,7 @@ import {
   ShieldAlert,
   LayoutDashboard,
   LogOut,
+  Newspaper,
   RefreshCw,
   Settings as SettingsIcon,
   Wallet,
@@ -43,6 +44,7 @@ export type PageId =
   | 'simulator'
   | 'goals'
   | 'tax'
+  | 'news'
   | 'import'
   | 'portfolios'
   | 'brokers'
@@ -69,6 +71,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { id: 'risk', label: 'Risc', icon: ShieldAlert },
       { id: 'dividends', label: 'Dividende', icon: CalendarDays },
+      { id: 'news', label: 'Știri', icon: Newspaper },
       { id: 'tax', label: 'Raport fiscal', icon: FileText }
     ]
   },
@@ -112,6 +115,7 @@ const TITLES: Record<PageId, string> = {
   goals: 'Obiective financiare',
   simulator: 'Ce-ar fi fost dacă',
   tax: 'Raport anual pentru taxe',
+  news: 'Știri și raportări',
   import: 'Import din extrasul brokerului',
   portfolios: 'Portofolii',
   brokers: 'Brokeri',
@@ -119,7 +123,7 @@ const TITLES: Record<PageId, string> = {
 };
 
 /** Raportul fiscal își alege singur portofoliile (implicit toate, inclusiv cele arhivate): selectorul global nu se aplică. */
-const OWN_SCOPE_PAGES: PageId[] = ['tax'];
+const OWN_SCOPE_PAGES: PageId[] = ['tax', 'news'];
 
 /** Paginile pe care se aplică filtrul global (broker + tip de activ). */
 const FILTERED_PAGES: PageId[] = ['dashboard', 'positions', 'risk'];

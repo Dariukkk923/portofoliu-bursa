@@ -473,6 +473,21 @@ try {
   await page.getByText('Lista este goală').waitFor();
   console.log('watchlist: simbol urmărit cu preț țintă, listă nouă, cumpărare din listă');
 
+  // 8d. Știri și raportări: pagina trebuie să se deschidă și fără internet (cu stare de eroare sau de cache, nu cu blocaj).
+  await nav('Știri');
+  await page.getByLabel('Filtru știri').waitFor();
+  // Se așteaptă o stare finală: știri, listă goală sau eroare cu „Încearcă din nou”.
+  await page.waitForFunction(
+    () => !document.querySelector('[aria-label="Se încarcă"]') || document.body.innerText.includes('Încearcă din nou'),
+    null,
+    { timeout: 60000 }
+  );
+  await shot('14f-stiri');
+  await page.getByRole('tab', { name: 'Raportări financiare' }).click();
+  await page.getByRole('heading', { name: /Calendarul raportărilor|Nicio companie|Nu sunt active/ }).or(page.getByText('Încearcă din nou')).first().waitFor({ timeout: 60000 });
+  await shot('14g-raportari');
+  console.log('știri și raportări: pagina se deschide (cu sau fără internet)');
+
   // 9. Restaurare din backup: datele Anei sunt înlocuite cu cele din backup-ul demo.
   await nav('Setări');
   await stubDialogs(backupFile);

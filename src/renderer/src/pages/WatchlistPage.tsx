@@ -16,6 +16,7 @@ import { Badge, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Inpu
 import { TickerLogo } from '../components/TickerLogo';
 import { Sparkline } from '../components/Sparkline';
 import { PurchaseForm } from '../components/PurchaseForm';
+import { AssetDetailModal, SymbolButton, type AssetRef } from '../components/AssetDetail';
 
 type SortKey = 'manual' | 'symbol' | 'change' | 'target';
 const SORTS: { value: SortKey; label: string }[] = [
@@ -62,6 +63,8 @@ export function WatchlistPage() {
   const [editing, setEditing] = useState<WatchlistItemView | null>(null);
   const [removing, setRemoving] = useState<WatchlistItemView | null>(null);
   const [buying, setBuying] = useState<WatchlistItemView | null>(null);
+  /** Știrile și raportările instrumentului al cărui simbol a fost apăsat. */
+  const [detail, setDetail] = useState<AssetRef | null>(null);
   const [removeAfterBuy, setRemoveAfterBuy] = useState(true);
   const [listDialog, setListDialog] = useState<{ mode: 'create' | 'rename'; name: string } | null>(null);
   const [deletingList, setDeletingList] = useState<Watchlist | null>(null);
@@ -211,7 +214,7 @@ export function WatchlistPage() {
                             <TickerLogo symbol={item.symbol} type={item.type} size={30} />
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <span className="font-semibold">{item.symbol}</span>
+                                <SymbolButton symbol={item.symbol} onClick={() => setDetail({ symbol: item.symbol, name: item.name, type: item.type })} />
                                 {item.held && <Badge tone="accent">În portofoliu</Badge>}
                               </div>
                               <div className="max-w-56 truncate text-xs text-ink-3" title={item.name}>
@@ -287,6 +290,8 @@ export function WatchlistPage() {
           </>
         )}
       </Card>
+
+      {detail && <AssetDetailModal asset={detail} onClose={() => setDetail(null)} />}
 
       {editing && lists.data && (
         <EditItem

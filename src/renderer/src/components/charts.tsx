@@ -533,3 +533,114 @@ export function GoalFanChart({ data, currency, target }: { data: FanPoint[]; cur
     </div>
   );
 }
+
+/* ------------------------------------------------- raportări financiare */
+
+export interface EpsChartPoint {
+  label: string;
+  actual: number | null;
+  estimate: number | null;
+}
+
+function EpsTooltip({ active, payload }: { active?: boolean; payload?: { payload: EpsChartPoint }[] }) {
+  const p = payload?.[0]?.payload;
+  if (!active || !p) return null;
+  return (
+    <div className={TOOLTIP_BOX}>
+      <p className="mb-1.5 font-semibold text-ink">{p.label}</p>
+      <dl className="tabular grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
+        <dt className="flex items-center gap-1.5 text-ink-2">
+          <span className="size-2.5 rounded-sm bg-(--series-1)" /> Real
+        </dt>
+        <dd className="text-right font-medium text-ink">{p.actual === null ? '—' : p.actual.toFixed(2)}</dd>
+        <dt className="flex items-center gap-1.5 text-ink-2">
+          <span className="size-2.5 rounded-sm bg-(--series-2)" /> Estimat
+        </dt>
+        <dd className="text-right font-medium text-ink">{p.estimate === null ? '—' : p.estimate.toFixed(2)}</dd>
+      </dl>
+    </div>
+  );
+}
+
+/** EPS real față de cel estimat, pe trimestre: două bare alăturate. */
+export function EpsChart({ data }: { data: EpsChartPoint[] }) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-4 text-xs text-ink-2">
+        <span className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-(--series-1)" /> EPS real
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-(--series-2)" /> EPS estimat
+        </span>
+      </div>
+      <div className="h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: 0 }} barCategoryGap="22%">
+            <CartesianGrid vertical={false} stroke="var(--line)" />
+            <XAxis dataKey="label" tick={{ fill: 'var(--ink-3)', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'var(--line)' }} tickMargin={8} />
+            <YAxis tick={{ fill: 'var(--ink-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
+            <ReferenceLine y={0} stroke="var(--ink-3)" strokeWidth={1} />
+            <Tooltip content={<EpsTooltip />} cursor={{ fill: 'var(--surface-2)' }} isAnimationActive={false} />
+            <Bar dataKey="actual" fill="var(--series-1)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="estimate" fill="var(--series-2)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+export interface StatementSeries {
+  key: string;
+  label: string;
+}
+
+function StatementTooltip({ active, payload, series, currency }: { active?: boolean; payload?: { payload: Record<string, number | string | null> }[]; series: StatementSeries[]; currency: string }) {
+  const p = payload?.[0]?.payload;
+  if (!active || !p) return null;
+  return (
+    <div className={TOOLTIP_BOX}>
+      <p className="mb-1.5 font-semibold text-ink">{String(p.label)}</p>
+      <dl className="tabular grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
+        {series.map((s, i) => (
+          <div key={s.key} className="contents">
+            <dt className="flex items-center gap-1.5 text-ink-2">
+              <span className="size-2.5 rounded-sm" style={{ background: SERIES[i] }} /> {s.label}
+            </dt>
+            <dd className="text-right font-medium text-ink">{typeof p[s.key] === 'number' ? `${compactNumber(p[s.key] as number)} ${currency}` : '—'}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/** Un tabel financiar în bare: până la trei indicatori pe perioadă (trimestre sau ani), cu legendă. */
+export function StatementChart({ data, series, currency }: { data: Record<string, number | string | null>[]; series: StatementSeries[]; currency: string }) {
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-2">
+        {series.map((s, i) => (
+          <span key={s.key} className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-sm" style={{ background: SERIES[i] }} /> {s.label}
+          </span>
+        ))}
+      </div>
+      <div className="h-56">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: 0 }} barCategoryGap="22%">
+            <CartesianGrid vertical={false} stroke="var(--line)" />
+            <XAxis dataKey="label" tick={{ fill: 'var(--ink-3)', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'var(--line)' }} tickMargin={8} interval="preserveStartEnd" />
+            <YAxis tickFormatter={(v: number) => compactNumber(v)} tick={{ fill: 'var(--ink-3)', fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
+            <ReferenceLine y={0} stroke="var(--ink-3)" strokeWidth={1} />
+            <Tooltip content={<StatementTooltip series={series} currency={currency} />} cursor={{ fill: 'var(--surface-2)' }} isAnimationActive={false} />
+            {series.map((s, i) => (
+              <Bar key={s.key} dataKey={s.key} fill={SERIES[i]} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}

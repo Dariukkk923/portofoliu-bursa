@@ -6,7 +6,7 @@
  * utilizator autentificat, și transmite serviciilor id-ul din sesiune — nu
  * unul primit de la interfață. Așa se garantează izolarea datelor pe utilizator.
  */
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -41,6 +41,10 @@ import { PriceService } from './prices/service';
 import { getLogos } from './prices/store';
 import type { SymbolRef } from './prices/provider';
 import { looksLikeZip } from './xlsx';
+import { getNews } from './services/news';
+import { getEarningsCalendar, getFinancials } from './services/financials';
+import { researchSymbols } from './services/research';
+import { createResearchSources } from './research/sources';
 
 export interface IpcContext {
   db: Db;
@@ -521,6 +525,34 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
     },
     app: {
       info: async () => ({ version: app.getVersion(), platform: process.platform, dataPath: ctx.dataDir })
+    },
+    news: {
+      symbols: async () => researchSymbols(db, uid()),
+      async list(filter) {
+        const userId = uid();
+        return getNews(db, userId, filter ?? {}, createResearchSources(db, secrets, userId));
+      },
+      async open(url) {
+        // Doar adrese https: alte scheme (file:, javascript:, http:) nu se deschid niciodată.
+        let parsed: URL;
+        try {
+          parsed = new URL(String(url));
+        } catch {
+          throw new AppError('Adresa articolului nu este validă.');
+        }
+        if (parsed.protocol !== 'https:') throw new AppError('Se deschid doar adrese https.');
+        await shell.openExternal(parsed.toString());
+      }
+    },
+    financials: {
+      async get(symbol, type, force) {
+        const userId = uid();
+        return getFinancials(db, userId, String(symbol ?? ''), type, createResearchSources(db, secrets, userId), { force: !!force });
+      },
+      async calendar(filter) {
+        const userId = uid();
+        return getEarningsCalendar(db, userId, filter ?? {}, createResearchSources(db, secrets, userId));
+      }
     }
   };
 

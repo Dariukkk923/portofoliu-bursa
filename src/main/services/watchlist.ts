@@ -117,7 +117,7 @@ function cleanNote(value: unknown): string | null {
 }
 
 /** Simbolurile deținute acum, în oricare portofoliu (pentru eticheta „În portofoliu”). */
-function heldSymbols(db: Db, userId: number): Set<string> {
+export function heldSymbols(db: Db, userId: number): Set<string> {
   const symbols = new Map((db.prepare('SELECT id, symbol FROM assets WHERE user_id = ?').all(userId) as { id: number; symbol: string }[]).map((r) => [r.id, r.symbol]));
   const held = new Set<string>();
   for (const p of new Ledger({ method: 'AVG', strict: false }).applyAll(allLedgerTxs(db, userId)).list()) {
