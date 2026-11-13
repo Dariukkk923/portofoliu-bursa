@@ -11,7 +11,7 @@ import { PurchaseForm } from '../components/PurchaseForm';
 import { TransactionForm } from '../components/TransactionForm';
 import { ImportButton } from '../components/ImportButton';
 import { MoveDialog, PortfolioTag } from '../components/portfolio';
-import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, LoadError, Modal, Notice, PageSkeleton, Pnl, Segmented, TD, TH, cx } from '../components/ui';
+import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, LoadError, Modal, Notice, PageSkeleton, Pnl, Segmented, MarketDot, TD, TH, cx } from '../components/ui';
 import { TickerLogo } from '../components/TickerLogo';
 import { JournalEntryForm } from '../components/journal';
 
@@ -188,7 +188,7 @@ export function PositionsPage() {
                   <TickerLogo symbol={p.symbol} type={p.assetType} size={36} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-body font-semibold text-ink">
-                      {p.symbol}
+                      {p.symbol} <MarketDot symbol={p.symbol} type={p.assetType} />
                       {byBroker && <span className="font-normal text-ink-3"> · {p.brokerName}</span>}
                     </p>
                     <p className="truncate text-xs text-ink-3">{p.name || ASSET_TYPE_LABEL[p.assetType]}</p>
@@ -254,6 +254,7 @@ export function PositionsPage() {
                         <div className="flex items-center justify-end gap-1.5">
                           <PriceSource p={p} />
                           {showPrice(p, p.price)}
+                          <MarketDot symbol={p.symbol} type={p.assetType} />
                         </div>
                       </td>
                       <td className={cx(TD, 'tabular text-right')}>
@@ -334,7 +335,7 @@ export function PositionsPage() {
                 <div>
                   <dt className="text-xs text-ink-3">Preț curent</dt>
                   <dd className="flex items-center gap-1.5 font-medium text-ink">
-                    {showPrice(p, p.price)} <PriceSource p={p} />
+                    {showPrice(p, p.price)} <PriceSource p={p} /> <MarketDot symbol={p.symbol} type={p.assetType} />
                   </dd>
                 </div>
                 <div>
