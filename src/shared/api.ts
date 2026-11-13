@@ -66,7 +66,12 @@ import type {
   Watchlist,
   WatchlistItemInput,
   WatchlistItemUpdate,
-  WatchlistItemView
+  WatchlistItemView,
+  CompanyFinancials,
+  EarningsCalendar,
+  NewsFeed,
+  NewsFilter,
+  ResearchSymbol
 } from './types';
 
 export interface Api {
@@ -249,6 +254,20 @@ export interface Api {
   };
   app: {
     info(): Promise<AppInfo>;
+  };
+  news: {
+    /** Simbolurile pentru care există știri: activele deținute și cele din watchlist. */
+    symbols(): Promise<ResearchSymbol[]>;
+    /** Știrile (din cache dacă sunt proaspete; altfel descărcate; la eșec, din cache, cu `stale`). */
+    list(filter: NewsFilter): Promise<NewsFeed>;
+    /** Deschide un articol (doar https) în browserul sistemului. */
+    open(url: string): Promise<void>;
+  };
+  financials: {
+    /** Raportările unei companii; ETF-urile, obligațiunile și crypto întorc `supported: false`, nu eroare. */
+    get(symbol: string, type: AssetType, force?: boolean): Promise<CompanyFinancials>;
+    /** Când raportează fiecare companie din filtru. */
+    calendar(filter: NewsFilter): Promise<EarningsCalendar>;
   };
 }
 

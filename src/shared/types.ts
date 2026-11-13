@@ -1339,3 +1339,193 @@ export interface AlertSymbol {
   currency: string;
   held: boolean;
 }
+
+/* ------------------------------------------------- știri și raportări financiare */
+
+/** Sursele de știri și de date financiare (aceleași ca providerii de prețuri care au și date despre companii). */
+export type ResearchSource = 'yahoo' | 'polygon' | 'alphavantage';
+
+export interface NewsItem {
+  /** Cheie stabilă (din adresa articolului). */
+  id: string;
+  title: string;
+  source: string;
+  /** Adresa articolului original (doar https). */
+  url: string;
+  /** Momentul publicării (ISO). */
+  publishedAt: string;
+  summary: string | null;
+  /** Imagine mică, descărcată de procesul principal (data URI); null dacă lipsește. */
+  thumbnail: string | null;
+  /** Simbolurile din portofoliu sau din watchlist la care se referă. */
+  symbols: string[];
+  providers: ResearchSource[];
+}
+
+export interface NewsFilter {
+  /** Un singur simbol; gol = toate. */
+  symbol?: string | null;
+  /** Doar activele deținute (fără watchlist). */
+  portfolioOnly?: boolean;
+  /** Ocolește cache-ul. */
+  force?: boolean;
+}
+
+export interface NewsFeed {
+  items: NewsItem[];
+  /** Cea mai veche reîmprospătare dintre simbolurile afișate (ISO); null = nimic în cache. */
+  fetchedAt: string | null;
+  /** Se afișează date din cache pentru că reîmprospătarea a eșuat. */
+  stale: boolean;
+  offline: boolean;
+  /** Mesajul erorii, doar când nu există nimic de afișat. */
+  error: string | null;
+  /** Câte simboluri sunt acoperite. */
+  symbolCount: number;
+}
+
+/** Un simbol din portofoliu sau din watchlist, pentru filtrele paginii Știri. */
+export interface ResearchSymbol {
+  symbol: string;
+  name: string;
+  type: AssetType;
+  held: boolean;
+}
+
+export type FinancialStatementKind = 'income' | 'balance' | 'cashflow';
+
+/** Rândurile fiecărui tabel; cheile sunt aceleași în toate sursele de date. */
+export const STATEMENT_FIELDS: Record<FinancialStatementKind, { key: string; label: string }[]> = {
+  income: [
+    { key: 'revenue', label: 'Venituri' },
+    { key: 'grossProfit', label: 'Profit brut' },
+    { key: 'operatingIncome', label: 'Profit operațional' },
+    { key: 'netIncome', label: 'Profit net' },
+    { key: 'eps', label: 'Profit pe acțiune (EPS)' }
+  ],
+  balance: [
+    { key: 'totalAssets', label: 'Active totale' },
+    { key: 'totalLiabilities', label: 'Datorii totale' },
+    { key: 'equity', label: 'Capitaluri proprii' },
+    { key: 'cash', label: 'Numerar' },
+    { key: 'totalDebt', label: 'Datorie financiară' }
+  ],
+  cashflow: [
+    { key: 'operating', label: 'Flux din exploatare' },
+    { key: 'investing', label: 'Flux din investiții' },
+    { key: 'financing', label: 'Flux din finanțare' },
+    { key: 'capex', label: 'Investiții în active (capex)' },
+    { key: 'freeCashFlow', label: 'Flux de numerar liber' }
+  ]
+};
+
+/** O perioadă dintr-un tabel financiar (trimestru sau an); `end` este data de închidere. */
+export interface StatementPeriod {
+  end: string;
+  values: Record<string, number | null>;
+}
+export type StatementSet = Record<FinancialStatementKind, StatementPeriod[]>;
+
+export interface EarningsQuarter {
+  periodEnd: string;
+  reportedDate: string | null;
+  epsActual: number | null;
+  epsEstimate: number | null;
+  /** (real − estimat) / |estimat|, fracție. */
+  surprisePct: number | null;
+}
+
+export type ResultsVerdict = 'beat' | 'miss' | 'inline';
+
+/** Ultimele rezultate publicate, comparate cu aceeași perioadă din anul trecut. */
+export interface LatestResults {
+  periodEnd: string;
+  reportedDate: string | null;
+  revenue: number | null;
+  revenueChangePct: number | null;
+  netIncome: number | null;
+  netIncomeChangePct: number | null;
+  epsActual: number | null;
+  epsEstimate: number | null;
+  epsChangePct: number | null;
+  verdict: ResultsVerdict | null;
+}
+
+export interface NextReport {
+  /** Data raportării (AAAA-LL-ZZ); null dacă nu se știe. */
+  date: string | null;
+  /** Data nu este confirmată de companie. */
+  estimated: boolean;
+  epsEstimate: number | null;
+  revenueEstimate: number | null;
+}
+
+/** Linkuri către sursele oficiale ale rapoartelor. */
+export interface ReportLinks {
+  website: string | null;
+  /** Pagina de investitori a companiei, dacă o cunoaște o sursă; altfel null (se folosește site-ul). */
+  investors: string | null;
+  /** Pagina instrumentului pe site-ul Bursei de Valori București (doar simbolurile .RO). */
+  bvb: string | null;
+  /** Rapoartele depuse la SEC (doar companiile din SUA). */
+  sec: string | null;
+}
+
+export interface CompanyFinancials {
+  symbol: string;
+  name: string;
+  /** False pentru ETF-uri, obligațiuni, crypto și simboluri fără raportări. */
+  supported: boolean;
+  /** Pentru simbolurile fără raportări: motivul, în cuvinte. */
+  reason: string | null;
+  currency: string | null;
+  next: NextReport | null;
+  latest: LatestResults | null;
+  /** Ultimele trimestre: EPS real față de estimat. */
+  eps: EarningsQuarter[];
+  statements: { quarterly: StatementSet; annual: StatementSet };
+  links: ReportLinks;
+  sources: ResearchSource[];
+  fetchedAt: string | null;
+  stale: boolean;
+  offline: boolean;
+  error: string | null;
+}
+
+export interface EarningsCalendarEntry {
+  symbol: string;
+  name: string;
+  type: AssetType;
+  held: boolean;
+  date: string | null;
+  daysUntil: number | null;
+  estimated: boolean;
+  epsEstimate: number | null;
+  /** Data ultimei raportări publicate. */
+  lastReportedDate: string | null;
+}
+
+export interface EarningsCalendar {
+  entries: EarningsCalendarEntry[];
+  fetchedAt: string | null;
+  offline: boolean;
+  error: string | null;
+}
+
+/** Pentru alerte: o raportare viitoare a unei companii din portofoliu. */
+export interface UpcomingReport {
+  symbol: string;
+  name: string;
+  date: string;
+  daysUntil: number;
+  estimated: boolean;
+  epsEstimate: number | null;
+}
+
+/** Pentru alerte: data ultimei raportări publicate a unei companii din portofoliu. */
+export interface LatestReportDate {
+  symbol: string;
+  name: string;
+  reportedDate: string | null;
+  periodEnd: string | null;
+}

@@ -486,7 +486,23 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_goals_user ON goals (user_id, sort_order);
     `
   },
-  // Versiunile 11 și 12 sunt ale altor ramuri (se unesc la integrare); lista nu cere versiuni consecutive.
+  {
+    version: 11,
+    name: 'cache pentru știri și raportări financiare',
+    sql: `
+      -- Cache generic per utilizator: știri ('news'), raportări ('fin'), calendar ('cal'), imagini ('thumb').
+      -- Se poate reface oricând din rețea, de aceea nu intră în backup.
+      CREATE TABLE research_cache (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL,
+        symbol     TEXT NOT NULL,
+        payload    TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, kind, symbol)
+      );
+    `
+  },
+  // Versiunea 12 nu a fost folosită (monedele și bursele nu au avut nevoie de migrare).
   {
     version: 13,
     name: 'alerte personalizate',

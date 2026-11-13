@@ -18,6 +18,7 @@ import { GoalsPage } from './pages/GoalsPage';
 import { AlertsPage } from './pages/AlertsPage';
 import { SimulatorPage } from './pages/SimulatorPage';
 import { TaxReportPage } from './pages/TaxReportPage';
+import { NewsPage } from './pages/NewsPage';
 import { resetLogos } from './lib/logos';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -82,6 +83,7 @@ function Workspace() {
       {page === 'alerts' && <AlertsPage />}
       {page === 'simulator' && <SimulatorPage />}
       {page === 'tax' && <TaxReportPage />}
+      {page === 'news' && <NewsPage onNavigate={setPage} />}
       {page === 'import' && <ImportPage />}
       {page === 'portfolios' && <PortfoliosPage onOpen={() => setPage('dashboard')} />}
       {page === 'brokers' && <BrokersPage />}

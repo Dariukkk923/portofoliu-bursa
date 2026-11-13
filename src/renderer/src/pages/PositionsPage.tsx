@@ -1,6 +1,6 @@
 /** Pagina Portofoliu: pozițiile deschise (agregat sau pe broker), adăugare de active, vânzare, editare, mutare între portofolii. */
 import { Fragment, useState } from 'react';
-import { ArrowLeftRight, FolderInput, NotebookPen, Pencil, Plus, Trash2, TrendingDown, Wallet } from 'lucide-react';
+import { ArrowLeftRight, ChevronRight, FolderInput, NotebookPen, Pencil, Plus, Trash2, TrendingDown, Wallet } from 'lucide-react';
 import type { Asset, PositionView, TransactionType } from '@shared/types';
 import { ASSET_TYPE_LABEL } from '@shared/labels';
 import { api, errorMessage } from '../api';
@@ -14,6 +14,7 @@ import { MoveDialog, PortfolioTag } from '../components/portfolio';
 import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, LoadError, Modal, Notice, PageSkeleton, Pnl, Segmented, MarketDot, TD, TH, cx } from '../components/ui';
 import { TickerLogo } from '../components/TickerLogo';
 import { JournalEntryForm } from '../components/journal';
+import { AssetDetailModal, SymbolButton, type AssetRef } from '../components/AssetDetail';
 
 type View = 'aggregated' | 'byBroker';
 
@@ -79,6 +80,9 @@ export function PositionsPage() {
   const [journalFor, setJournalFor] = useState<{ assetId: number; portfolioId: number | null } | null>(null);
   const [txPreset, setTxPreset] = useState<{ type: TransactionType; assetId: number; brokerId?: number | null; portfolioId?: number | null } | null>(null);
   const [moving, setMoving] = useState<{ ids: number[]; position: PositionView } | null>(null);
+  /** Știrile și raportările activului al cărui simbol a fost apăsat. */
+  const [detail, setDetail] = useState<AssetRef | null>(null);
+  const openDetail = (p: PositionView): void => setDetail({ symbol: p.symbol, name: p.name, type: p.assetType });
   /** În vederea combinată, fiecare linie pe broker arată și portofoliul. */
   const showPortfolio = scope === 'all' && activePortfolios.length > 1;
 
@@ -184,22 +188,28 @@ export function PositionsPage() {
           <ul className="divide-y divide-line md:hidden">
             {rows.map((p) => (
               <li key={p.key}>
-                <button type="button" onClick={() => setActionsFor(p)} className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left">
-                  <TickerLogo symbol={p.symbol} type={p.assetType} size={36} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-body font-semibold text-ink">
-                      {p.symbol} <MarketDot symbol={p.symbol} type={p.assetType} />
-                      {byBroker && <span className="font-normal text-ink-3"> · {p.brokerName}</span>}
-                    </p>
-                    <p className="truncate text-xs text-ink-3">{p.name || ASSET_TYPE_LABEL[p.assetType]}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-body font-semibold text-ink">{money(p.marketValueBase, base)}</p>
-                    <Pnl value={p.unrealizedBase} className="text-xs font-medium">
-                      {signedMoney(p.unrealizedBase, base)} ({signedPercent(p.unrealizedBasePct)})
-                    </Pnl>
-                  </div>
-                </button>
+                <div className="flex min-h-16 w-full items-stretch">
+                  {/* Stânga: știrile și raportările activului; dreapta: acțiunile poziției. */}
+                  <button type="button" onClick={() => openDetail(p)} aria-label={`Știri și raportări pentru ${p.symbol}`} className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left">
+                    <TickerLogo symbol={p.symbol} type={p.assetType} size={36} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-body font-semibold text-ink">
+                        {p.symbol} <MarketDot symbol={p.symbol} type={p.assetType} />
+                        {byBroker && <span className="font-normal text-ink-3"> · {p.brokerName}</span>}
+                      </p>
+                      <p className="truncate text-xs text-ink-3">{p.name || ASSET_TYPE_LABEL[p.assetType]}</p>
+                    </div>
+                  </button>
+                  <button type="button" onClick={() => setActionsFor(p)} aria-label={`Acțiuni pentru ${p.symbol}`} className="flex shrink-0 items-center gap-1 py-3 pr-3 pl-3 text-right">
+                    <span>
+                      <span className="block text-body font-semibold text-ink">{money(p.marketValueBase, base)}</span>
+                      <Pnl value={p.unrealizedBase} className="text-xs font-medium">
+                        {signedMoney(p.unrealizedBase, base)} ({signedPercent(p.unrealizedBasePct)})
+                      </Pnl>
+                    </span>
+                    <ChevronRight className="size-4 text-ink-3" aria-hidden />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -231,7 +241,7 @@ export function PositionsPage() {
                           <TickerLogo symbol={p.symbol} type={p.assetType} size={30} />
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold">{p.symbol}</span>
+                              <SymbolButton symbol={p.symbol} onClick={() => openDetail(p)} />
                               <Badge>{ASSET_TYPE_LABEL[p.assetType]}</Badge>
                             </div>
                             <div className="max-w-48 truncate text-xs text-ink-3" title={p.name}>{p.name || '—'}</div>
@@ -419,6 +429,7 @@ export function PositionsPage() {
         </Card>
       )}
 
+      {detail && <AssetDetailModal asset={detail} onClose={() => setDetail(null)} />}
       {purchase && <PurchaseForm assets={assetList} onClose={() => setPurchase(false)} onSaved={afterSave} />}
       {journalFor && (
         <JournalEntryForm

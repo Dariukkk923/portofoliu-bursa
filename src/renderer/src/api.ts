@@ -42,7 +42,9 @@ export const api: Api = {
   goals: group('goals'),
   alerts: group('alerts'),
   backup: group('backup'),
-  app: group('app')
+  app: group('app'),
+  news: group('news'),
+  financials: group('financials')
 };
 
 export const onAppEvent = (listener: (event: AppEvent) => void): (() => void) => window.bridge.onEvent(listener);
