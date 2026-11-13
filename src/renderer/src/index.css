@@ -10,70 +10,80 @@
  */
 :root {
   color-scheme: light;
-  --bg: #f4f6f9;
+  --bg: #f5f4fb;
   --surface: #ffffff;
-  --surface-2: #f1f4f8;
-  --line: #e2e7ee;
-  --ink: #0f172a;
-  --ink-2: #475569;
-  --ink-3: #617084;
-  --accent: #2563c4;
+  --surface-2: #f0eff8;
+  --line: #e4e2f0;
+  --ink: #14122b;
+  --ink-2: #4a4866;
+  --ink-3: #63617f;
+  /* accent = violetul pentru text și contururi; brand = violetul pentru fundaluri pline (buton, meniu activ) */
+  --accent: #6d28d9;
   --accent-ink: #ffffff;
-  --accent-soft: #e8f0fc;
+  --accent-soft: #eee8fd;
+  --brand: #7c3aed;
+  --brand-ink: #ffffff;
   /* verde = profit, roșu = pierdere */
-  --gain: #127536;
-  --gain-soft: #e3f5e8;
-  --loss: #c02626;
-  --loss-soft: #fdeaea;
-  --warn: #9a6200;
+  --gain: #137233;
+  --gain-soft: #e1f6e8;
+  --loss: #c62828;
+  --loss-soft: #fde9e9;
+  --warn: #8f5a00;
   --warn-soft: #fdf2d8;
+  --warn-ink: #ffffff;
   --danger-ink: #ffffff;
-  --overlay: rgb(15 23 42 / 0.45);
-  --card-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.05);
-  --pop-shadow: 0 12px 32px rgb(15 23 42 / 0.16), 0 2px 6px rgb(15 23 42 / 0.08);
-  /* paleta categorială a graficelor (ordine fixă, validată pentru daltonism) */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #1baf7a;
-  --series-4: #eda100;
-  --series-5: #e87ba4;
-  --series-6: #008300;
-  --series-7: #6250d6;
-  --series-8: #e34948;
-  --series-other: #9aa5b4;
+  --overlay: rgb(20 18 43 / 0.45);
+  --card-shadow: 0 1px 2px rgb(20 18 43 / 0.04), 0 4px 16px rgb(76 29 149 / 0.05);
+  --pop-shadow: 0 12px 32px rgb(20 18 43 / 0.16), 0 2px 6px rgb(20 18 43 / 0.08);
+  /* linia graficului principal (verde de profit) și strălucirea ei */
+  --chart-line: #16a34a;
+  /* paleta categorială a graficelor (ordine fixă): violet, cian, chihlimbar, coral, verde, albastru, roz, portocaliu */
+  --series-1: #7c3aed;
+  --series-2: #0891b2;
+  --series-3: #ca8a04;
+  --series-4: #e11d48;
+  --series-5: #16a34a;
+  --series-6: #2563eb;
+  --series-7: #db2777;
+  --series-8: #ea580c;
+  --series-other: #9aa0b8;
 }
 
 .dark {
   color-scheme: dark;
-  --bg: #0c1118;
-  --surface: #151b24;
-  --surface-2: #1c2430;
-  --line: #2a3442;
-  --ink: #e8edf4;
-  --ink-2: #a3b0c0;
-  --ink-3: #8794a6;
-  --accent: #4a92ea;
-  --accent-ink: #06121f;
-  --accent-soft: #17293f;
-  --gain: #4ade80;
-  --gain-soft: #12301f;
+  --bg: #0b0d1a;
+  --surface: #12152a;
+  --surface-2: #1a1e38;
+  --line: #262b47;
+  --ink: #f3f4fb;
+  --ink-2: #b1b8d3;
+  --ink-3: #8f97b8;
+  --accent: #a78bfa;
+  --accent-ink: #0b0d1a;
+  --accent-soft: #1e1a45;
+  --brand: #7c3aed;
+  --brand-ink: #ffffff;
+  --gain: #22c55e;
+  --gain-soft: #0f2e22;
   --loss: #f87171;
-  --loss-soft: #3a1818;
+  --loss-soft: #3a1620;
   --warn: #f2b84b;
   --warn-soft: #3a2c10;
+  --warn-ink: #1a1203;
   --danger-ink: #2a0a0a;
-  --overlay: rgb(0 0 0 / 0.6);
-  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
-  --pop-shadow: 0 16px 40px rgb(0 0 0 / 0.55);
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
-  --series-4: #c98500;
-  --series-5: #d55181;
-  --series-6: #008300;
-  --series-7: #9085e9;
-  --series-8: #e66767;
-  --series-other: #5f6b7b;
+  --overlay: rgb(3 4 12 / 0.65);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.18);
+  --pop-shadow: 0 16px 40px rgb(0 0 0 / 0.6);
+  --chart-line: #22c55e;
+  --series-1: #8b5cf6;
+  --series-2: #22d3ee;
+  --series-3: #facc15;
+  --series-4: #f87171;
+  --series-5: #34d399;
+  --series-6: #60a5fa;
+  --series-7: #f472b6;
+  --series-8: #fb923c;
+  --series-other: #5a6285;
 }
 
 @theme inline {
@@ -87,12 +97,15 @@
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
   --color-gain: var(--gain);
   --color-gain-soft: var(--gain-soft);
   --color-loss: var(--loss);
   --color-loss-soft: var(--loss-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
+  --color-warn-ink: var(--warn-ink);
   --color-danger-ink: var(--danger-ink);
   --color-overlay: var(--overlay);
   --shadow-card: var(--card-shadow);
@@ -106,10 +119,11 @@
   --text-body--line-height: 1.25rem;
   --text-md: 0.9375rem;
   --text-md--line-height: 1.375rem;
-  --text-stat: 1.375rem;
-  --text-stat--line-height: 1.75rem;
-  --text-hero: 1.75rem;
-  --text-hero--line-height: 2.25rem;
+  --text-stat: 1.5rem;
+  --text-stat--line-height: 2rem;
+  --text-hero: 2.125rem;
+  --text-hero--line-height: 2.5rem;
+  --radius-xl: 1rem;
 }
 
 /* Marginea de jos a iPhone-ului (bara de acasă), pentru tab bar și ferestrele de jos. */
@@ -233,4 +247,49 @@ input[type='date']::-webkit-calendar-picker-indicator {
 .income-hatch {
   background-color: color-mix(in srgb, var(--series-1) 18%, transparent);
   background-image: repeating-linear-gradient(45deg, var(--series-1) 0 2px, transparent 2px 5px);
+}
+
+/* Cardurile se ridică ușor la hover (doar pe dispozitive cu mouse). */
+@media (hover: hover) {
+  .card-hover {
+    transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
+  }
+  .card-hover:hover {
+    border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+    transform: translateY(-1px);
+  }
+}
+
+/* Linia graficului principal strălucește discret (doar în tema întunecată). */
+.dark .glow-line {
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--chart-line) 70%, transparent));
+}
+
+/* Graficele apar printr-o scurtă dezvăluire de la stânga la dreapta. */
+@keyframes chart-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.chart-reveal {
+  animation: chart-reveal 0.9s ease-out both;
+}
+
+/* Cifrele mari din carduri se micșorează odată cu ecranul, ca „+33.479,84 RON” să încapă. */
+@utility text-kpi {
+  font-size: clamp(1.0625rem, 1.3vw, 1.5rem);
+  line-height: 1.5;
+  @media (max-width: 639px) {
+    font-size: 1.5rem;
+  }
+}
+@utility text-kpi-hero {
+  font-size: clamp(1.5rem, 2.1vw, 2.125rem);
+  line-height: 1.2;
+  @media (max-width: 639px) {
+    font-size: 1.625rem;
+  }
 }

@@ -45,7 +45,13 @@ async function selectPortfolio(name) {
   await page.getByRole('menuitemradio', { name }).click();
 }
 
-const nav = (label) => page.getByRole('navigation').getByRole('button', { name: label, exact: true }).click();
+/** Deschide grupurile din meniul lateral (Portofoliu, Analiză, Rapoarte, Setări), apoi apasă elementul cerut. */
+const nav = async (label) => {
+  const menu = page.getByRole('navigation', { name: 'Meniu principal' });
+  const closed = menu.locator('button[aria-expanded="false"]');
+  while ((await closed.count()) > 0) await closed.first().click();
+  await menu.getByRole('button', { name: label, exact: true }).click();
+};
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
 };
@@ -145,7 +151,10 @@ const login = async (username, password, remember = false) => {
   if (remember) await page.getByLabel('Ține-mă minte pe acest calculator').check();
   await page.getByRole('button', { name: 'Intră în cont' }).click();
 };
-const logout = () => page.getByRole('button', { name: 'Ieșire din cont' }).click();
+const logout = async () => {
+  await page.getByRole('button', { name: 'Meniul contului' }).click();
+  await page.getByRole('menuitem', { name: 'Ieșire din cont' }).click();
+};
 
 try {
   await launch();
@@ -190,7 +199,7 @@ try {
   // 5. Ieșire, apoi contul demo.
   await logout();
   await page.getByRole('button', { name: 'Încearcă contul demo' }).click();
-  await page.getByText('Valoarea totală a portofoliului').waitFor({ timeout: 30000 });
+  await page.getByText('Valoare portofoliu', { exact: true }).waitFor({ timeout: 30000 });
   await page.waitForTimeout(9000); // prețuri + istoric de la Yahoo, dacă există internet
   await shot('06-demo-dashboard');
   await page.locator('main').evaluate((el) => el.scrollTo(0, el.scrollHeight));
@@ -309,12 +318,35 @@ try {
   await page.getByRole('button', { name: 'Înapoi la datele din aplicație' }).waitFor();
   await page.getByRole('radio', { name: /În bani de azi/ }).click();
   await shot('09p-obiective-slider-real');
-  await nav('Panou principal');
+  await nav('Dashboard');
   const goalsCard = page.locator('main').getByRole('heading', { name: 'Obiective' });
   await goalsCard.waitFor({ timeout: 60000 });
   await goalsCard.scrollIntoViewIfNeeded();
   await shot('09q-panou-obiective');
   console.log('obiective: proiecție, slider, bani de azi, card pe panoul principal');
+
+  // Alertele: o alertă pe valoarea portofoliului (deja îndeplinită) sună imediat; apare în clopoțel și se marchează ca citită.
+  await nav('Alerte');
+  await page.getByText('Nicio alertă încă').first().waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Adaugă alertă' }).first().click();
+  await page.getByLabel('Tipul alertei').selectOption('portfolio');
+  await page.getByLabel('Valoare', { exact: true }).fill('1');
+  await page.getByLabel(/^Notă personală/).fill('Test smoke');
+  await shot('09r-alerta-formular');
+  await page.getByRole('button', { name: 'Salvează' }).click();
+  await page.getByText(/Valoarea totală peste 1/).first().waitFor({ timeout: 30000 });
+  await shot('09s-alerte');
+  const unread = page.getByTestId('alerts-unread');
+  await unread.waitFor({ timeout: 30000 });
+  check((await unread.innerText()).trim() === '1', 'Clopoțelul ar trebui să arate o notificare necitită.');
+  await page.getByRole('button', { name: /^Notificări/ }).click();
+  await page.getByRole('dialog', { name: 'Centrul de notificări' }).getByText(/Portofoliul: valoarea totală este peste/).waitFor();
+  check((await page.getByRole('dialog', { name: 'Centrul de notificări' }).getByText('Test smoke').count()) === 1, 'Nota personală lipsește din notificare.');
+  await shot('09t-centrul-de-notificari');
+  await page.getByRole('button', { name: 'Marchează tot ca citit' }).click();
+  await unread.waitFor({ state: 'detached', timeout: 10000 });
+  await page.keyboard.press('Escape');
+  console.log('alerte: creare, declanșare imediată, centru de notificări, marcare ca citită');
 
   // Portofoliile: contul demo are „Principal” și „Crypto”; ecranul de comparație și selectorul din bara de sus.
   await nav('Portofolii');
@@ -358,8 +390,8 @@ try {
   console.log('backup creat');
 
   await page.getByRole('radio', { name: 'Întunecată' }).click();
-  await nav('Panou principal');
-  await page.getByText('Valoarea totală a portofoliului').waitFor();
+  await nav('Dashboard');
+  await page.getByText('Valoare portofoliu', { exact: true }).waitFor();
   await shot('13-demo-dashboard-dark');
   await nav('Risc');
   await page.getByText('Scor de diversificare').waitFor();
@@ -473,6 +505,21 @@ try {
   await page.getByText('Lista este goală').waitFor();
   console.log('watchlist: simbol urmărit cu preț țintă, listă nouă, cumpărare din listă');
 
+  // 8d. Știri și raportări: pagina trebuie să se deschidă și fără internet (cu stare de eroare sau de cache, nu cu blocaj).
+  await nav('Știri');
+  await page.getByLabel('Filtru știri').waitFor();
+  // Se așteaptă o stare finală: știri, listă goală sau eroare cu „Încearcă din nou”.
+  await page.waitForFunction(
+    () => !document.querySelector('[aria-label="Se încarcă"]') || document.body.innerText.includes('Încearcă din nou'),
+    null,
+    { timeout: 60000 }
+  );
+  await shot('14f-stiri');
+  await page.getByRole('tab', { name: 'Raportări financiare' }).click();
+  await page.getByRole('heading', { name: /Calendarul raportărilor|Nicio companie|Nu sunt active/ }).or(page.getByText('Încearcă din nou')).first().waitFor({ timeout: 60000 });
+  await shot('14g-raportari');
+  console.log('știri și raportări: pagina se deschide (cu sau fără internet)');
+
   // 9. Restaurare din backup: datele Anei sunt înlocuite cu cele din backup-ul demo.
   await nav('Setări');
   await stubDialogs(backupFile);
@@ -489,7 +536,9 @@ try {
   await app.close();
   await launch();
   await page.getByRole('navigation').waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'Meniul contului' }).click(); // numele contului e în meniul avatarului
   check((await page.getByText('ana', { exact: true }).count()) > 0, 'Sesiunea „ține-mă minte” nu a fost restaurată.');
+  await page.keyboard.press('Escape');
   console.log('ține-mă minte: sesiunea a fost restaurată după repornire');
   await shot('15-sesiune-restaurata');
 

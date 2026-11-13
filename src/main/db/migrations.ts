@@ -485,6 +485,64 @@ export const MIGRATIONS: Migration[] = [
       );
       CREATE INDEX idx_goals_user ON goals (user_id, sort_order);
     `
+  },
+  {
+    version: 11,
+    name: 'cache pentru știri și raportări financiare',
+    sql: `
+      -- Cache generic per utilizator: știri ('news'), raportări ('fin'), calendar ('cal'), imagini ('thumb').
+      -- Se poate reface oricând din rețea, de aceea nu intră în backup.
+      CREATE TABLE research_cache (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL,
+        symbol     TEXT NOT NULL,
+        payload    TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, kind, symbol)
+      );
+    `
+  },
+  // Versiunea 12 nu a fost folosită (monedele și bursele nu au avut nevoie de migrare).
+  {
+    version: 13,
+    name: 'alerte personalizate',
+    sql: `
+      -- Alertele utilizatorului: condiția (JSON cu tipul și pragurile), regulile de livrare și starea internă.
+      -- portfolio_id NULL = toate portofoliile (sau alertă pe simbol, fără portofoliu).
+      CREATE TABLE alerts (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        portfolio_id      INTEGER REFERENCES portfolios(id) ON DELETE CASCADE,
+        kind              TEXT NOT NULL,
+        condition         TEXT NOT NULL,
+        enabled           INTEGER NOT NULL DEFAULT 1,
+        repeat_mode       TEXT NOT NULL DEFAULT 'once' CHECK (repeat_mode IN ('once', 'repeat')),
+        min_pause_min     INTEGER NOT NULL DEFAULT 1440,
+        window_start      TEXT,
+        window_end        TEXT,
+        sound             INTEGER NOT NULL DEFAULT 1,
+        snoozed_until     TEXT,
+        note              TEXT,
+        state             TEXT NOT NULL DEFAULT '{}',
+        last_triggered_at TEXT,
+        trigger_count     INTEGER NOT NULL DEFAULT 0,
+        created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_alerts_user ON alerts (user_id, enabled);
+      -- Istoricul declanșărilor (centrul de notificări); rămâne și după ștergerea alertei.
+      CREATE TABLE alert_events (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        alert_id   INTEGER REFERENCES alerts(id) ON DELETE SET NULL,
+        kind       TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        body       TEXT NOT NULL DEFAULT '',
+        note       TEXT,
+        created_at TEXT NOT NULL,
+        read_at    TEXT
+      );
+      CREATE INDEX idx_alert_events_user ON alert_events (user_id, id);
+    `
   }
 ];
 

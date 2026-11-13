@@ -1,0 +1,9 @@
+/* Stilurile aplicației, plus ce lipsește pe web. Tailwind trebuie să vadă clasele din interfață și din src/web. */
+@import '../renderer/src/index.css';
+@source '../renderer/src';
+@source '.';
+
+/* Marginea de sus a iPhone-ului (bara de stare/notch), când aplicația rulează pe tot ecranul. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}

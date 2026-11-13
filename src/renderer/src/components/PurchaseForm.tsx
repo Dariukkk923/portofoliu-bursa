@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Search } from 'lucide-react';
 import { ASSET_CURRENCIES, ASSET_TYPES, type Asset, type AssetType, type SymbolSearchResult } from '@shared/types';
 import { ASSET_TYPE_LABEL } from '@shared/labels';
+import { listingDetail, listingLabel } from '@shared/exchanges';
 import { parseNumberLoose } from '@shared/csv';
 import { todayIso } from '@shared/dates';
 import { api, errorMessage } from '../api';
@@ -271,7 +272,7 @@ export function PurchaseForm({
                         <TickerLogo symbol={r.symbol} type={r.type ?? type} size={22} />
                         <span className="w-24 shrink-0 text-body font-semibold text-ink">{r.symbol}</span>
                         <span className="min-w-0 flex-1 truncate text-body text-ink-2">{r.name}</span>
-                        {r.exchange && <span className="shrink-0 text-xs text-ink-3">{r.exchange}</span>}
+                        <span className="shrink-0 text-xs text-ink-3" title={listingLabel(r)}>{listingDetail(r)}</span>
                         {r.type && <Badge>{ASSET_TYPE_LABEL[r.type]}</Badge>}
                       </button>
                     </li>

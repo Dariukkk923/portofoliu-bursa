@@ -4,7 +4,7 @@
  * real; export PDF și CSV.
  */
 import { useMemo, useState } from 'react';
-import { CircleCheck, FileDown, FileText, NotebookPen, Pencil, Plus, Search, Trash2, TriangleAlert, Info } from 'lucide-react';
+import { BellPlus, CircleCheck, FileDown, FileText, NotebookPen, Pencil, Plus, Search, Trash2, TriangleAlert, Info } from 'lucide-react';
 import type { JournalEntry, JournalFilters } from '@shared/types';
 import { JOURNAL_REVIEW_MONTHS } from '@shared/types';
 import { api, errorMessage } from '../api';
@@ -72,6 +72,15 @@ function Outcome({ e }: { e: JournalEntry }) {
 }
 
 function EntryItem({ e, onEdit, onDelete, onTag }: { e: JournalEntry; onEdit: () => void; onDelete: () => void; onTag: (t: string) => void }) {
+  const { notify } = useApp();
+  // O apăsare: alertă pe ținta de profit și stop-loss din plan.
+  const createAlert = (): void => {
+    if (e.id === null) return;
+    api.alerts
+      .fromJournal(e.id)
+      .then(() => notify('success', `Alerta pentru ${e.symbol} a fost creată (vezi ecranul Alerte).`))
+      .catch((err) => notify('error', errorMessage(err)));
+  };
   return (
     <li className="flex gap-3 py-3.5">
       <TickerLogo symbol={e.symbol} type={e.assetType} size={32} />
@@ -102,6 +111,11 @@ function EntryItem({ e, onEdit, onDelete, onTag }: { e: JournalEntry; onEdit: ()
         {(e.targetPrice !== null || e.stopLoss !== null || e.horizonMonths !== null || e.confidence !== null || e.tags.length > 0 || e.reviewDate) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <PlanChips e={e} />
+            {e.id !== null && e.kind !== 'sell' && (e.targetPrice !== null || e.stopLoss !== null) && (
+              <button type="button" onClick={createAlert} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-accent hover:bg-accent-soft">
+                <BellPlus className="size-3.5" aria-hidden /> Creează alertă
+              </button>
+            )}
             {e.tags.map((t) => (
               <button key={t} type="button" onClick={() => onTag(t)} className="rounded-md px-1.5 py-0.5 text-xs font-medium text-accent hover:bg-accent-soft">
                 #{t}

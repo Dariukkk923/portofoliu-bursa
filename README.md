@@ -5,16 +5,20 @@ Aplicație desktop pentru monitorizarea investițiilor la bursă: acțiuni, ETF-
 - Portofoliu pe total sau pe broker, cu profit realizat și nerealizat
 - Istoric de tranzacții: cumpărări, vânzări, dividende, cupoane, split-uri
 - Preluarea pozițiilor de la XTB direct din fișierul Excel exportat din xStation, fără introducere manuală
-- Dashboard cu evoluția valorii, alocări și clasamente
+- Dashboard cu evoluția valorii, alocări, clasamente și comparația cu indicii (S&P 500, BET, FTSE 100, DAX, CAC 40, Euro Stoxx 50)
+- Profit și randament pe perioadă: 1S, 1L, 3L, 6L, YTD, 1A, Tot
+- Știri despre companiile tale și raportările lor financiare (calendar, rezultate față de estimări, situații financiare)
+- Alerte personalizate: preț, mișcare zilnică, profit pe poziție, dividende, rezultate financiare și altele
 - Prețuri actualizate automat (Yahoo Finance, fără cheie; opțional Alpha Vantage, Twelve Data, Polygon)
 - Mai mulți utilizatori pe același calculator, fiecare cu datele lui
-- Import/export CSV, backup și restaurare, temă luminoasă și întunecată
+- Import/export CSV, backup și restaurare, temă întunecată (implicit) și luminoasă
+- Versiune pentru telefon (iPhone/Android), care se instalează din browser, fără App Store
 
 ![Panoul principal](docs/capturi/dashboard.png)
 
-| Portofoliu pe broker | Istoricul tranzacțiilor | Temă întunecată |
-|---|---|---|
-| ![Portofoliu](docs/capturi/portofoliu.png) | ![Tranzacții](docs/capturi/tranzactii.png) | ![Temă întunecată](docs/capturi/dashboard-intunecat.png) |
+| Portofoliu pe broker | Istoricul tranzacțiilor | Temă luminoasă | Pe telefon |
+|---|---|---|---|
+| ![Portofoliu](docs/capturi/portofoliu.png) | ![Tranzacții](docs/capturi/tranzactii.png) | ![Temă luminoasă](docs/capturi/dashboard-luminos.png) | ![Pe telefon](docs/capturi/telefon.png) |
 
 *Capturile sunt din contul demo (date de test).*
 
@@ -89,7 +93,8 @@ Dacă apare o eroare despre FUSE, instalează pachetul `libfuse2` (Ubuntu/Debian
 |---|---|
 | Acțiuni SUA | `AAPL`, `MSFT` |
 | Bursa de Valori București | sufix `.RO`: `TLV.RO`, `SNP.RO`, `H2O.RO` |
-| Alte burse europene | `VWCE.DE` (Xetra), `SAP.DE`, `ASML.AS` |
+| Londra | sufix `.L`: `VUAG.L`, `SHEL.L` |
+| Alte burse europene | `.DE` Xetra, `.PA` Paris, `.AS` Amsterdam, `.BR` Bruxelles, `.LS` Lisabona, `.MI` Milano, `.MC` Madrid, `.SW` Elveția, `.WA` Varșovia, `.ST` Stockholm, `.CO` Copenhaga, `.OL` Oslo (ex.: `VWCE.DE`, `ASML.AS`) |
 | Crypto | monedă-valută: `BTC-USD`, `ETH-EUR` |
 | Obligațiuni | un cod ales de tine sau simbolul de la bursă (ex.: `R2710A`) |
 
@@ -97,7 +102,14 @@ Dacă apare o eroare despre FUSE, instalează pachetul `libfuse2` (Ubuntu/Debian
 
 **Split-uri.** Adaugă o tranzacție de tip *Split* cu raportul (ex.: `4:1` — patru acțiuni noi pentru una veche). Cantitatea și prețul mediu se ajustează automat, iar valoarea investită rămâne aceeași. Acțiunile gratuite de la BVB se pot înregistra tot ca split (ex.: `115:100`).
 
-**Monede.** Fiecare activ are moneda lui (RON, EUR, USD, GBP, CHF). Totalurile sunt convertite în moneda de bază aleasă în Setări, la cursul curent.
+**Monede.** Fiecare activ are moneda lui: RON, EUR, USD, GBP, CHF, PLN, SEK, DKK, NOK. Totalurile sunt convertite în moneda de bază aleasă în Setări (RON, EUR, USD sau GBP), la cursul curent. Acțiunile de la Londra cotate în pence (GBX) sunt transformate automat în lire.
+
+### 4b. Știri, raportări financiare și alerte
+
+- **Știri** (meniul din stânga) — știrile despre companiile din portofoliu și din watchlist, cu filtre pe simbol și perioadă. Fiecare știre se deschide în browser. Pe pagina unui activ găsești și tabul cu știrile lui.
+- **Raportări financiare** (pe pagina activului) — data următoarei raportări, ultimele rezultate (EPS față de estimare), situațiile financiare pe trimestre și pe ani, cu grafice, și linkuri către rapoartele oficiale (pentru acțiunile `.RO`, pagina BVB).
+- **Alerte** — din clopoțelul din bara de sus sau din pagina Alerte. Poți fi anunțat când un preț trece de un prag, când o poziție ajunge la un anumit profit, înainte de ex-dividend, când **„Compania X își publică rezultatele în 3 zile”** sau când **„Au apărut rezultatele companiei X”**. Fiecare alertă are reguli de repetare, pauză minimă și interval orar.
+- Datele de la acești provideri se păstrează în cache, așa că paginile merg și fără internet cu ultimele informații.
 
 ### 5. Prețuri și chei API
 
@@ -127,6 +139,8 @@ Bine de știut:
 - **Profit nerealizat** = valoarea de piață a pozițiilor deschise − costul lor.
 - **Profit realizat** = profitul din vânzări + dividendele și cupoanele nete (după impozitul reținut).
 - **Randament total** = (realizat + nerealizat) / suma tuturor cumpărărilor.
+- **Randamentul în timp (TWR)** ține cont de depuneri și retrageri: banii depuși nu sunt profit. Pentru fiecare zi, r = (valoare − depuneri nete din ziua respectivă) / valoarea din ziua precedentă − 1, iar zilele se compun. Banii neinvestiți nu aduc nimic. Comparația cu indicele folosește același calcul, iar ambele curbe pornesc de la 0%.
+- **Profitul pe perioadă** (1S … Tot): *realizat* = vânzările + dividendele și cupoanele nete din perioadă; *nerealizat* = cât s-a schimbat profitul nerealizat între începutul și sfârșitul perioadei. Perioada aleasă se ține minte.
 - **Conversia valutară** se face la cursul curent pentru toate sumele, deci câștigul sau pierderea din diferențe de curs nu sunt evidențiate separat.
 - La **obligațiuni** se lucrează cu prețul curat: dobânda acumulată nu este inclusă în valoare.
 - **Graficul de evoluție** este reconstruit din tranzacții și din prețurile istorice zilnice; pentru activele fără istoric (de exemplu obligațiunile cu preț manual) se folosește costul.
@@ -185,6 +199,27 @@ Dezinstalarea aplicației nu șterge acest folder. Fișierul bazei de date nu es
 
 ---
 
+### 10. Pe telefon (iPhone și Android)
+
+Aplicația are și o versiune care rulează în browserul telefonului și se poate pune pe ecranul principal, ca o aplicație obișnuită.
+
+1. Deschide pe telefon adresa **https://dariukkk923.github.io/portofoliu-bursa/** (în Safari pe iPhone).
+2. Apasă **Partajare → Adaugă pe ecranul principal**.
+3. Deschide aplicația de pe ecranul principal și intră în cont (sau încearcă contul demo).
+4. Pentru prețurile de la Yahoo, cursurile BNR și logo-uri: **Setări → Versiunea pentru telefon** → lipește adresa proxy-ului (vezi mai jos). Fără proxy merg doar providerii cu cheie API (Alpha Vantage, Twelve Data, Polygon) și datele salvate.
+
+Bine de știut:
+
+- **Datele stau doar pe telefon**, în browser, separat de calculator. Dacă ștergi datele site-ului din Safari, se pierd. Fă des **backup** (Setări → Backup): fișierul se poate trimite pe email sau salva în Fișiere și se poate restaura și în aplicația de pe calculator.
+- Merge și **fără internet**, cu ultimele prețuri salvate.
+- Alertele apar în clopoțel cât timp aplicația e deschisă (nu ca notificări pe ecranul blocat).
+- Situațiile financiare de la Yahoo nu sunt disponibile pe telefon; raportările folosesc Polygon sau Alpha Vantage, dacă ai cheie.
+
+**Pentru proprietarul proiectului (o singură dată):**
+
+1. **Proxy (Cloudflare Workers, gratuit):** `cd proxy && npx wrangler login && npx wrangler deploy`. În `proxy/wrangler.toml`, `ALLOWED_ORIGIN` trebuie să fie adresa site-ului (`https://dariukkk923.github.io`). Proxy-ul nu salvează și nu loghează nimic. Detalii în `proxy/README.md`.
+2. **GitHub Pages:** Settings → Pages → Source = **GitHub Actions**. Fiecare push pe `main` sau tag `v*` publică versiunea web (`.github/workflows/pages.yml`).
+
 ## Partea 2 — Pentru dezvoltatori
 
 ### Tehnologii
@@ -203,6 +238,9 @@ npm run typecheck  # verifică tipurile (procesul principal + interfața)
 npm run build      # typecheck + build de producție în out/
 npm start          # pornește build-ul de producție din out/
 npm run smoke      # test „de fum” al aplicației construite (capturi în .smoke/)
+npm run screens    # capturi ale tuturor ecranelor, desktop și telefon (în .screens/)
+npm run build:web  # versiunea pentru telefon (PWA) în dist-web/
+npm run preview:web # o servește local, pentru probă
 ```
 
 `better-sqlite3` vine cu binare precompilate (N-API) pentru Windows, macOS și Linux, compatibile atât cu Node, cât și cu Electron: nu este nevoie de compilator C++ și nici de `electron-rebuild`. Fișierul `.npmrc` al proiectului dezactivează scripturile de instalare ale dependențelor (`ignore-scripts=true`), pentru că altfel npm ar încerca inutil o compilare cu `node-gyp`, care eșuează pe calculatoarele fără Visual Studio / Xcode.

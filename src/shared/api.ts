@@ -7,6 +7,11 @@
  * îl ia din sesiunea proprie, deci interfața nu poate cere datele altui cont.
  */
 import type {
+  AlertCenter,
+  AlertEventView,
+  AlertInput,
+  AlertSymbol,
+  AlertView,
   Asset,
   AssetType,
   AssetUpdate,
@@ -35,6 +40,7 @@ import type {
   MovePreview,
   MoveResult,
   PerformanceData,
+  PeriodProfit,
   Portfolio,
   PortfolioComparison,
   PortfolioInput,
@@ -50,6 +56,7 @@ import type {
   Settings,
   SettingsUpdate,
   SymbolQuote,
+  ProjectionInputs,
   SymbolSearchResult,
   TaxReport,
   Transaction,
@@ -60,7 +67,12 @@ import type {
   Watchlist,
   WatchlistItemInput,
   WatchlistItemUpdate,
-  WatchlistItemView
+  WatchlistItemView,
+  CompanyFinancials,
+  EarningsCalendar,
+  NewsFeed,
+  NewsFilter,
+  ResearchSymbol
 } from './types';
 
 export interface Api {
@@ -123,6 +135,10 @@ export interface Api {
     history(range: HistoryRange, filter: PortfolioFilter): Promise<HistoryPoint[]>;
     /** Randamentul TWR și XIRR pe interval, plus totalul depus net de la început. */
     performance(range: HistoryRange, filter: PortfolioFilter): Promise<PerformanceData>;
+    /** Profitul realizat și variația celui nerealizat pe perioada aleasă. */
+    periodProfit(range: HistoryRange, filter: PortfolioFilter): Promise<PeriodProfit>;
+    /** Datele proiecției de pe dashboard: valoare, contribuție lunară medie, randament așteptat. */
+    projection(filter: PortfolioFilter): Promise<ProjectionInputs>;
     /** Ecranul „Risc”: concentrare, expuneri, volatilitate, scădere maximă, beta, scor de diversificare. */
     risk(range: HistoryRange, filter: PortfolioFilter): Promise<RiskReport>;
     addPurchase(input: PurchaseInput): Promise<Transaction>;
@@ -216,12 +232,45 @@ export interface Api {
     templates(): Promise<ImportTemplate[]>;
     deleteTemplate(id: number): Promise<void>;
   };
+  alerts: {
+    /** Alertele utilizatorului (ale portofoliului ales și cele fără portofoliu). */
+    list(portfolioId: number | null): Promise<AlertView[]>;
+    create(input: AlertInput): Promise<AlertView>;
+    update(id: number, input: AlertInput): Promise<AlertView>;
+    setEnabled(id: number, enabled: boolean): Promise<AlertView>;
+    /** Amână alerta cu atâtea minute; null anulează amânarea. */
+    snooze(id: number, minutes: number | null): Promise<AlertView>;
+    remove(id: number): Promise<void>;
+    /** Dintr-o intrare din jurnal: alertă pe ținta de profit și stop-loss ale planului. */
+    fromJournal(entryId: number): Promise<AlertView>;
+    /** Simbolurile din portofoliu și watchlist, pentru alegerea din formular. */
+    symbols(): Promise<AlertSymbol[]>;
+    /** Centrul de notificări: ultimele declanșări și numărul celor necitite. */
+    center(): Promise<AlertCenter>;
+    /** Marchează ca citite notificările date; null = toate. */
+    markRead(ids: number[] | null): Promise<AlertCenter>;
+    clearHistory(): Promise<AlertCenter>;
+  };
   backup: {
     create(): Promise<FileResult>;
     restore(): Promise<FileResult>;
   };
   app: {
     info(): Promise<AppInfo>;
+  };
+  news: {
+    /** Simbolurile pentru care există știri: activele deținute și cele din watchlist. */
+    symbols(): Promise<ResearchSymbol[]>;
+    /** Știrile (din cache dacă sunt proaspete; altfel descărcate; la eșec, din cache, cu `stale`). */
+    list(filter: NewsFilter): Promise<NewsFeed>;
+    /** Deschide un articol (doar https) în browserul sistemului. */
+    open(url: string): Promise<void>;
+  };
+  financials: {
+    /** Raportările unei companii; ETF-urile, obligațiunile și crypto întorc `supported: false`, nu eroare. */
+    get(symbol: string, type: AssetType, force?: boolean): Promise<CompanyFinancials>;
+    /** Când raportează fiecare companie din filtru. */
+    calendar(filter: NewsFilter): Promise<EarningsCalendar>;
   };
 }
 
@@ -237,7 +286,9 @@ export type AppEvent =
   /** Datele s-au schimbat în fundal (prețuri noi, restaurare) și ecranele trebuie reîncărcate. */
   | { type: 'data:changed' }
   /** Au sosit logo-uri noi pentru simbolurile date. */
-  | { type: 'logos:changed'; payload: string[] };
+  | { type: 'logos:changed'; payload: string[] }
+  /** Au sunat alerte noi (centrul de notificări trebuie reîncărcat). */
+  | { type: 'alerts:triggered'; payload: AlertEventView[] };
 
 /** Plicul răspunsului IPC: erorile ajung în interfață ca text, nu ca excepții serializate. */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string };

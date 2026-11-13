@@ -99,11 +99,20 @@ export function isNetworkError(err: unknown): boolean {
   );
 }
 
+/**
+ * Toate cererile de rețea ale providerilor trec pe aici. Versiunea web înlocuiește funcția,
+ * ca să trimită prin proxy cererile blocate de CORS (vezi src/web/net.ts).
+ */
+export let providerFetch: typeof fetch = (input, init) => fetch(input, init);
+export const setProviderFetch = (impl: typeof fetch): void => {
+  providerFetch = impl;
+};
+
 /** Cerere GET care întoarce JSON, cu timeout și erori clasificate. */
 export async function fetchJson(url: string, timeoutMs = 15_000): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });
+    res = await providerFetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });
   } catch (err) {
     throw new ProviderError('network', `Conexiune eșuată: ${(err as Error).message}`);
   }
@@ -125,7 +134,7 @@ const MAX_IMAGE_BYTES = 256 * 1024;
 export async function fetchImage(url: string, timeoutMs = 15_000): Promise<LogoImage | null> {
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: IMAGE_TYPES.join(', ') } });
+    res = await providerFetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: IMAGE_TYPES.join(', ') } });
   } catch (err) {
     throw new ProviderError('network', `Conexiune eșuată: ${(err as Error).message}`);
   }
@@ -182,3 +191,27 @@ export function splitExchangeSuffix(symbol: string): { ticker: string; suffix: s
 }
 
 export const toNumber = (v: unknown): number => (typeof v === 'number' ? v : Number.parseFloat(String(v)));
+
+/**
+ * Unele burse cotează în subunități: Londra în pence („GBp”/„GBX”), 100 pence = 1 liră. Aplicația lucrează
+ * doar cu unitatea principală, deci toate prețurile care intră (cotație, istoric, dividende) trec pe aici.
+ */
+export const isMinorUnit = (currency: unknown): boolean => currency === 'GBp' || currency === 'GBX';
+
+/** Prețul în unitatea principală și moneda ei („GBp” -> „GBP”); alte monede doar se scriu cu majuscule. */
+export function toMajorUnits(price: number, currency: unknown): { price: number; currency: string | null } {
+  if (isMinorUnit(currency)) return { price: price / 100, currency: 'GBP' };
+  return { price, currency: currency ? String(currency).toUpperCase() : null };
+}
+
+/** Curs încrucișat prin a doua serie: pentru fiecare zi din `a` se folosește ultimul punct din `b` până la acea zi. */
+export function crossSeries(a: { date: string; close: number }[], b: { date: string; close: number }[]): { date: string; close: number }[] {
+  const sorted = [...b].sort((x, y) => (x.date < y.date ? -1 : 1));
+  const out: { date: string; close: number }[] = [];
+  let j = -1;
+  for (const p of [...a].sort((x, y) => (x.date < y.date ? -1 : 1))) {
+    while (j + 1 < sorted.length && sorted[j + 1].date <= p.date) j++;
+    if (j >= 0) out.push({ date: p.date, close: p.close * sorted[j].close });
+  }
+  return out;
+}

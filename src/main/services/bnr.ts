@@ -10,6 +10,7 @@
 import { dec } from '@shared/calc/decimal';
 import { addDays, todayIso } from '@shared/dates';
 import type { Db } from '../db/database';
+import { providerFetch } from '../prices/provider';
 
 /** Adresele fișierelor BNR. Dacă BNR le mută, se schimbă doar aici. */
 export const BNR_YEAR_URL = (year: number): string => `https://www.bnr.ro/files/xml/years/nbrfxrates${year}.xml`;
@@ -50,7 +51,7 @@ export function parseBnrXml(xml: string): BnrRate[] {
 export type Fetcher = (url: string) => Promise<string>;
 
 const defaultFetcher: Fetcher = async (url) => {
-  const res = await fetch(url, { signal: AbortSignal.timeout(20_000), headers: { accept: 'application/xml, text/xml' } });
+  const res = await providerFetch(url, { signal: AbortSignal.timeout(20_000), headers: { accept: 'application/xml, text/xml' } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.text();
 };

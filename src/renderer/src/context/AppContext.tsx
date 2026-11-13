@@ -159,7 +159,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   // Tema: din setările utilizatorului; înainte de login, ultima temă folosită pe acest calculator.
-  const theme: Theme = settings?.theme ?? ((localStorage.getItem(THEME_KEY) as Theme | null) || 'system');
+  const theme: Theme = settings?.theme ?? ((localStorage.getItem(THEME_KEY) as Theme | null) || 'dark');
   useEffect(() => {
     applyTheme(theme);
     if (settings) localStorage.setItem(THEME_KEY, theme);

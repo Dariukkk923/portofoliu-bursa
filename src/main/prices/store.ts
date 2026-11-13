@@ -158,7 +158,7 @@ export function saveLogo(db: Db, userId: number, symbol: string, image: { data: 
  * Cursuri aproximative față de RON, folosite doar dacă nu există niciun curs
  * salvat (prima pornire fără internet). Interfața afișează atunci un avertisment.
  */
-const APPROX_RON: Record<string, number> = { RON: 1, EUR: 5.3, USD: 4.8, GBP: 6.1, CHF: 5.7 };
+const APPROX_RON: Record<string, number> = { RON: 1, EUR: 5.3, USD: 4.8, GBP: 6.1, CHF: 5.7, PLN: 1.25, SEK: 0.48, DKK: 0.71, NOK: 0.45 };
 
 export interface FxResult {
   rate: number;

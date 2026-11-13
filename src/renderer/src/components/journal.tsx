@@ -84,7 +84,7 @@ function ConfidencePicker({ value, onChange }: { value: number | null; onChange:
           onClick={() => onChange(value === n ? null : n)}
           className={cx(
             'tabular flex size-8 items-center justify-center rounded-lg border text-body font-semibold transition',
-            value !== null && n <= value ? 'border-accent bg-accent text-accent-ink' : 'border-line bg-surface text-ink-2 hover:bg-surface-2'
+            value !== null && n <= value ? 'border-brand bg-brand text-brand-ink' : 'border-line bg-surface text-ink-2 hover:bg-surface-2'
           )}
         >
           {n}

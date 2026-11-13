@@ -15,8 +15,10 @@ import { RiskPage } from './pages/RiskPage';
 import { DividendsPage } from './pages/DividendsPage';
 import { JournalPage } from './pages/JournalPage';
 import { GoalsPage } from './pages/GoalsPage';
+import { AlertsPage } from './pages/AlertsPage';
 import { SimulatorPage } from './pages/SimulatorPage';
 import { TaxReportPage } from './pages/TaxReportPage';
+import { NewsPage } from './pages/NewsPage';
 import { resetLogos } from './lib/logos';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -78,8 +80,10 @@ function Workspace() {
       {page === 'dividends' && <DividendsPage />}
       {page === 'journal' && <JournalPage />}
       {page === 'goals' && <GoalsPage />}
+      {page === 'alerts' && <AlertsPage />}
       {page === 'simulator' && <SimulatorPage />}
       {page === 'tax' && <TaxReportPage />}
+      {page === 'news' && <NewsPage onNavigate={setPage} />}
       {page === 'import' && <ImportPage />}
       {page === 'portfolios' && <PortfoliosPage onOpen={() => setPage('dashboard')} />}
       {page === 'brokers' && <BrokersPage />}

@@ -30,7 +30,7 @@ interface SettingsRow {
 function row(db: Db, userId: number): SettingsRow {
   let r = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId) as SettingsRow | undefined;
   if (!r) {
-    db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(userId);
+    db.prepare("INSERT INTO settings (user_id, theme) VALUES (?, 'dark')").run(userId);
     r = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId) as SettingsRow;
   }
   return r;

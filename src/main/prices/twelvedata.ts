@@ -11,6 +11,7 @@ import {
   ProviderError,
   RateLimiter,
   splitExchangeSuffix,
+  toMajorUnits,
   toNumber,
   type HistoryResult,
   type LogoImage,
@@ -76,8 +77,7 @@ export class TwelveDataProvider implements PriceProvider {
     const currency = data.currency ?? (typeof data.symbol === 'string' && data.symbol.includes('/') ? data.symbol.split('/')[1] : null);
     return {
       symbol: ref.symbol,
-      price,
-      currency: currency ? String(currency).toUpperCase() : null,
+      ...toMajorUnits(price, currency),
       asOf: data.timestamp ? new Date(Number(data.timestamp) * 1000).toISOString() : new Date().toISOString(),
       name: data.name ?? null
     };
@@ -107,7 +107,8 @@ export class TwelveDataProvider implements PriceProvider {
       order: 'ASC'
     });
     const points = ((data.values ?? []) as Json[])
-      .map((v) => ({ date: String(v.datetime).slice(0, 10), close: toNumber(v.close) }))
+      // Londra: prețurile vin în pence, iar moneda din „meta” spune asta (GBp).
+      .map((v) => ({ date: String(v.datetime).slice(0, 10), close: toMajorUnits(toNumber(v.close), data.meta?.currency).price }))
       .filter((p) => p.close > 0);
     return { points, splitAdjusted: true };
   }
@@ -121,7 +122,7 @@ export class TwelveDataProvider implements PriceProvider {
       name: String(d.instrument_name ?? ''),
       exchange: d.exchange ? String(d.exchange) : null,
       type: typeOf(String(d.instrument_type ?? '')),
-      currency: d.currency ? String(d.currency) : null
+      currency: toMajorUnits(1, d.currency).currency
     }));
   }
 }

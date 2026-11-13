@@ -54,7 +54,7 @@ export async function register(db: Db, input: RegisterInput, options: { isDemo?:
     const info = db
       .prepare('INSERT INTO users (username, email, password_hash, is_demo) VALUES (?, ?, ?, ?)')
       .run(username, email, hash, options.isDemo ? 1 : 0);
-    db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(info.lastInsertRowid);
+    db.prepare("INSERT INTO settings (user_id, theme) VALUES (?, 'dark')").run(info.lastInsertRowid);
     // Fiecare cont pornește cu un portofoliu, „Principal”.
     db.prepare("INSERT INTO portfolios (user_id, name, base_currency) VALUES (?, 'Principal', 'RON')").run(info.lastInsertRowid);
     return Number(info.lastInsertRowid);

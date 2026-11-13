@@ -17,10 +17,11 @@ mkdirSync(dataDir, { recursive: true });
 
 const VIEWS = [
   { name: 'desktop', width: 1440, height: 900 },
+  { name: 'desktop-xl', width: 1672, height: 941 },
   { name: 'iphone', width: 390, height: 844 }
 ];
 const PAGES = [
-  ['dashboard', 'Panou principal'],
+  ['dashboard', 'Dashboard'],
   ['positions', 'Portofoliu'],
   ['transactions', 'Tranzacții'],
   ['watchlist', 'Watchlist'],
@@ -33,7 +34,9 @@ const PAGES = [
   ['import', 'Import'],
   ['portfolios', 'Portofolii'],
   ['brokers', 'Brokeri'],
-  ['settings', 'Setări']
+  ['settings', 'Setări'],
+  ['news', 'Știri'],
+  ['alerts', 'Alerte']
 ];
 
 const app = await electron.launch({ args: ['.'], env: { ...process.env, PORTOFOLIU_DATA_DIR: dataDir } });
@@ -59,11 +62,15 @@ const shot = async (name) => {
 /** Deschide un ecran din meniu: lateral pe calculator; tab bar sau „Mai mult” pe telefon. */
 async function go(view, label) {
   const name = new RegExp(`^${label}`);
-  if (view === 'desktop') {
-    await page.getByRole('navigation', { name: 'Meniu principal' }).getByRole('button', { name }).click();
+  if (view.startsWith('desktop')) {
+    // Grupurile din meniu (Portofoliu, Analiză, Rapoarte, Setări) se deschid întâi, ca toate paginile să fie vizibile.
+    const menu = page.getByRole('navigation', { name: 'Meniu principal' });
+    const closed = menu.locator('button[aria-expanded="false"]');
+  while ((await closed.count()) > 0) await closed.first().click();
+    await menu.getByRole('button', { name }).first().click();
   } else {
     const tabs = page.getByRole('navigation', { name: 'Meniu rapid' });
-    const tab = tabs.getByRole('button', { name: new RegExp(`^${label === 'Panou principal' ? 'Panou' : label}$`) });
+    const tab = tabs.getByRole('button', { name: new RegExp(`^${label}$`) });
     if ((await tab.count()) > 0) await tab.click();
     else {
       await tabs.getByRole('button', { name: /^Mai mult/ }).click();
@@ -88,7 +95,7 @@ for (const v of VIEWS) {
 }
 
 await page.getByRole('button', { name: 'Încearcă contul demo' }).click();
-await page.getByText('Valoarea totală a portofoliului').waitFor({ timeout: 30000 });
+await page.getByText('Valoare portofoliu', { exact: true }).waitFor({ timeout: 30000 });
 await page.waitForTimeout(9000); // prețuri + istoric de la Yahoo, dacă există internet
 
 // Un obiectiv, ca ecranul Obiective să arate proiecția.
@@ -120,7 +127,7 @@ for (const theme of [
       await page.locator('main ul button').first().click();
       await shot(`${v.name}-${theme.name}-16-pozitie-actiuni`);
       await page.getByRole('button', { name: 'Închide' }).click();
-      await go(v.name, 'Panou principal');
+      await go(v.name, 'Dashboard');
       await page.locator('main').evaluate((el) => el.scrollTo(0, 700));
       await shot(`${v.name}-${theme.name}-17-dashboard-jos`);
     }
