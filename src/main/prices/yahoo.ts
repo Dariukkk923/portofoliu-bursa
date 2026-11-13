@@ -7,8 +7,11 @@ import YahooFinance from 'yahoo-finance2';
 import type { AssetType, SymbolSearchResult } from '@shared/types';
 import { addDays, todayIso } from '@shared/dates';
 import {
+  crossSeries,
   isNetworkError,
+  parseFxSymbol,
   ProviderError,
+  toMajorUnits,
   type AssetProfile,
   type HistoryResult,
   type PriceProvider,
@@ -35,15 +38,6 @@ const QUOTE_TYPES: Record<string, AssetType> = {
 };
 
 type Any = any;
-
-/**
- * Unele burse cotează în subunități: Londra în pence („GBp”/„GBX”). Aplicația
- * lucrează doar cu unitatea principală, deci prețul se împarte la 100.
- */
-function toMajorUnits(price: number, currency: unknown): { price: number; currency: string | null } {
-  if (currency === 'GBp' || currency === 'GBX') return { price: price / 100, currency: 'GBP' };
-  return { price, currency: currency ? String(currency).toUpperCase() : null };
-}
 
 export class YahooProvider implements PriceProvider {
   readonly id = 'yahoo' as const;
@@ -89,6 +83,13 @@ export class YahooProvider implements PriceProvider {
         const q = this.toQuote(item);
         if (q) out.set(q.symbol, q);
       }
+      for (const r of refs) {
+        const sym = r.symbol.toUpperCase();
+        if (r.type === 'fx' && !out.has(sym)) {
+          const c = await this.crossQuote(sym);
+          if (c) out.set(sym, c);
+        }
+      }
       return out;
     } catch (err) {
       throw this.wrap(err);
@@ -101,7 +102,46 @@ export class YahooProvider implements PriceProvider {
     return q;
   }
 
+  /**
+   * Yahoo nu are toate perechile directe (ex.: PLNRON=X, NOKRON=X): le calculăm prin dolar, din cele două
+   * perechi cu USD, care există pentru toate monedele aplicației.
+   */
+  private async crossQuote(symbol: string): Promise<Quote | null> {
+    const fx = parseFxSymbol(symbol);
+    if (!fx || fx.from === 'USD' || fx.to === 'USD') return null;
+    const legs = await this.yf().quote([`${fx.from}USD=X`, `USD${fx.to}=X`]);
+    const price = (name: string): number => (legs as Any[]).find((l) => l?.symbol === name)?.regularMarketPrice;
+    const rate = price(`${fx.from}USD=X`) * price(`USD${fx.to}=X`);
+    return rate > 0 ? { symbol, price: rate, currency: fx.to, asOf: new Date().toISOString() } : null;
+  }
+
+  private async crossHistory(symbol: string, from: string, to: string): Promise<HistoryResult | null> {
+    const fx = parseFxSymbol(symbol);
+    if (!fx || fx.from === 'USD' || fx.to === 'USD') return null;
+    const a = await this.getHistory({ symbol: `${fx.from}USD=X`, type: 'fx' }, from, to);
+    const b = await this.getHistory({ symbol: `USD${fx.to}=X`, type: 'fx' }, addDays(from, -7), to);
+    const points = crossSeries(a.points, b.points);
+    return points.length > 0 ? { points, splitAdjusted: true } : null;
+  }
+
   async getHistory(ref: SymbolRef, from: string, to: string): Promise<HistoryResult> {
+    const direct = await this.directHistory(ref, from, to).catch((err: unknown) => {
+      if (ref.type === 'fx' && err instanceof ProviderError && err.kind === 'notfound') return null;
+      throw err;
+    });
+    if (ref.type !== 'fx') return direct as HistoryResult;
+    // Un interval scurt poate fi gol legitim (weekend); doar unul lung înseamnă că perechea directă lipsește.
+    if (direct && (direct.points.length > 0 || to < addDays(from, 7))) return direct;
+    try {
+      const cross = await this.crossHistory(ref.symbol.toUpperCase(), from, to);
+      if (cross || direct) return cross ?? direct!;
+      throw new ProviderError('notfound', `Yahoo Finance nu are istoric pentru ${ref.symbol}.`);
+    } catch (err) {
+      throw this.wrap(err);
+    }
+  }
+
+  private async directHistory(ref: SymbolRef, from: string, to: string): Promise<HistoryResult> {
     try {
       // period2 este exclusiv, deci cerem o zi în plus.
       const chart: Any = await this.yf().chart(ref.symbol, { period1: from, period2: addDays(to, 1), interval: '1d' });
@@ -187,6 +227,15 @@ export class YahooProvider implements PriceProvider {
           type,
           currency: null
         });
+      }
+      // Căutarea nu întoarce moneda; o aflăm dintr-o singură cerere de cotații (cu pence deja convertiți în lire).
+      if (results.length > 0) {
+        try {
+          const quotes = await this.getQuotes(results.map((r) => ({ symbol: r.symbol, type: r.type ?? 'stock' })));
+          for (const r of results) r.currency = quotes.get(r.symbol)?.currency ?? null;
+        } catch {
+          // Fără monedă: interfața folosește moneda uzuală a bursei.
+        }
       }
       return results;
     } catch (err) {

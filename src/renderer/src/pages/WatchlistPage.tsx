@@ -8,11 +8,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Eye, Pencil, Plus, Search, ShoppingCart, Trash2 } from 'lucide-react';
 import { ASSET_CURRENCIES, ASSET_TYPES, type AssetType, type SymbolSearchResult, type Watchlist, type WatchlistItemView } from '@shared/types';
 import { ASSET_TYPE_LABEL } from '@shared/labels';
+import { exchangeForSymbol, listingDetail, listingLabel } from '@shared/exchanges';
 import { parseNumberLoose } from '@shared/csv';
 import { api, errorMessage } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
 import { dateTime, percent, price as fmtPrice, signedPercent } from '../lib/format';
-import { Badge, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Input, LoadError, Modal, Notice, PageSkeleton, Pnl, Segmented, Select, Spinner, TD, Textarea, TH, cx } from '../components/ui';
+import { Badge, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Input, LoadError, Modal, Notice, PageSkeleton, Pnl, Segmented, MarketDot, Select, Spinner, TD, Textarea, TH, cx } from '../components/ui';
 import { TickerLogo } from '../components/TickerLogo';
 import { Sparkline } from '../components/Sparkline';
 import { PurchaseForm } from '../components/PurchaseForm';
@@ -221,7 +222,7 @@ export function WatchlistPage() {
                           </div>
                         </td>
                         <td className={cx(TD, 'tabular text-right')} title={item.priceAsOf ? `Actualizat: ${dateTime(item.priceAsOf)}` : undefined}>
-                          {item.price === null ? <span className="text-ink-3">—</span> : `${fmtPrice(item.price)} ${item.currency}`}
+                          {item.price === null ? <span className="text-ink-3">—</span> : <span className="inline-flex items-center gap-1.5">{`${fmtPrice(item.price)} ${item.currency}`}<MarketDot symbol={item.symbol} type={item.type} /></span>}
                         </td>
                         <td className={cx(TD, 'text-right')}>
                           {item.changePct === null ? (
@@ -409,7 +410,7 @@ function AddSymbol({ watchlistId, onAdded }: { watchlistId: number; onAdded: () 
       if (!currency || !(ASSET_CURRENCIES as readonly string[]).includes(currency)) {
         // Moneda nu se știe din căutare: o aflăm de la furnizorul de prețuri.
         const q = await api.prices.lookup(r.symbol, r.type).catch(() => null);
-        currency = q?.currency && (ASSET_CURRENCIES as readonly string[]).includes(q.currency) ? q.currency : r.symbol.endsWith('.RO') ? 'RON' : 'USD';
+        currency = q?.currency && (ASSET_CURRENCIES as readonly string[]).includes(q.currency) ? q.currency : (exchangeForSymbol(r.symbol, r.type)?.currency ?? 'USD');
         name ||= q?.name ?? '';
       }
       await api.watchlists.addItem(watchlistId, { symbol: r.symbol, type: r.type, currency, name });
@@ -469,7 +470,7 @@ function AddSymbol({ watchlistId, onAdded }: { watchlistId: number; onAdded: () 
                   <TickerLogo symbol={r.symbol} type={r.type ?? type} size={22} />
                   <span className="w-24 shrink-0 text-body font-semibold text-ink">{r.symbol}</span>
                   <span className="min-w-0 flex-1 truncate text-body text-ink-2">{r.name}</span>
-                  {r.exchange && <span className="shrink-0 text-xs text-ink-3">{r.exchange}</span>}
+                  <span className="shrink-0 text-xs text-ink-3" title={listingLabel(r)}>{listingDetail(r)}</span>
                   {r.type && <Badge>{ASSET_TYPE_LABEL[r.type]}</Badge>}
                 </button>
               </li>

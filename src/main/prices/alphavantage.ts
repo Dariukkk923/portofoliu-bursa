@@ -10,7 +10,9 @@ import {
   parseFxSymbol,
   ProviderError,
   RateLimiter,
+  isMinorUnit,
   splitExchangeSuffix,
+  toMajorUnits,
   toNumber,
   type HistoryResult,
   type PriceProvider,
@@ -51,6 +53,25 @@ export class AlphaVantageProvider implements PriceProvider {
     return `${ticker}.${mapped}`;
   }
 
+  private readonly minorCache = new Map<string, boolean>();
+
+  /**
+   * Londra: Alpha Vantage nu spune în ce monedă vine prețul, iar unele titluri cotează în pence (GBX), altele în USD/GBP.
+   * Moneda se află o dată din căutare; dacă nu se poate afla, mai bine eroare decât prețuri greșite de 100 de ori.
+   */
+  private async quotedInPence(ref: SymbolRef): Promise<boolean> {
+    if (ref.type === 'fx' || ref.type === 'crypto' || splitExchangeSuffix(ref.symbol).suffix !== 'L') return false;
+    const symbol = this.stockSymbol(ref.symbol);
+    const known = this.minorCache.get(symbol);
+    if (known !== undefined) return known;
+    const data = await this.call({ function: 'SYMBOL_SEARCH', keywords: symbol });
+    const match = ((data.bestMatches ?? []) as Json[]).find((m) => String(m['1. symbol']).toUpperCase() === symbol.toUpperCase());
+    if (!match?.['8. currency']) throw new ProviderError('notfound', `Alpha Vantage: nu se poate afla moneda lui ${ref.symbol}.`);
+    const pence = isMinorUnit(String(match['8. currency']));
+    this.minorCache.set(symbol, pence);
+    return pence;
+  }
+
   /** Perechea de monede pentru crypto și curs valutar. */
   private pair(ref: SymbolRef): { from: string; to: string } | null {
     if (ref.type === 'fx') return parseFxSymbol(ref.symbol);
@@ -75,10 +96,11 @@ export class AlphaVantageProvider implements PriceProvider {
     const price = toNumber(q?.['05. price']);
     if (!(price > 0)) throw new ProviderError('notfound', `Alpha Vantage nu are preț pentru ${ref.symbol}.`);
     const day = String(q?.['07. latest trading day'] ?? '');
+    const pence = await this.quotedInPence(ref);
     return {
       symbol: ref.symbol,
-      price,
-      currency: null, // GLOBAL_QUOTE nu întoarce moneda; se păstrează cea a activului
+      price: pence ? price / 100 : price,
+      currency: pence ? 'GBP' : null, // GLOBAL_QUOTE nu întoarce moneda; se păstrează cea a activului
       asOf: /^\d{4}-\d{2}-\d{2}$/.test(day) ? `${day}T00:00:00.000Z` : new Date().toISOString()
     };
   }
@@ -107,7 +129,8 @@ export class AlphaVantageProvider implements PriceProvider {
       .map(([date, v]) => ({ date: date.slice(0, 10), close: toNumber((v as Json)['4. close'] ?? (v as Json)['4a. close (USD)']) }))
       .filter((p) => p.date >= from && p.date <= to && p.close > 0)
       .sort((a, b) => (a.date < b.date ? -1 : 1));
-    return { points, splitAdjusted: false };
+    const pence = await this.quotedInPence(ref);
+    return { points: pence ? points.map((p) => ({ date: p.date, close: p.close / 100 })) : points, splitAdjusted: false };
   }
 
   async search(query: string): Promise<SymbolSearchResult[]> {
@@ -117,7 +140,7 @@ export class AlphaVantageProvider implements PriceProvider {
       name: String(m['2. name'] ?? ''),
       exchange: m['4. region'] ? String(m['4. region']) : null,
       type: /etf/i.test(String(m['3. type'])) ? 'etf' : 'stock',
-      currency: m['8. currency'] ? String(m['8. currency']) : null
+      currency: toMajorUnits(1, m['8. currency']).currency
     }));
   }
 }

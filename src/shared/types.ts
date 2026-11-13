@@ -25,10 +25,12 @@ export const ASSET_TRANSACTION_TYPES: TransactionType[] = ['buy', 'sell', 'divid
 /** Tranzacțiile de cash (fără activ, cu excepția comisioanelor, care pot privi un activ). */
 export const CASH_TRANSACTION_TYPES: TransactionType[] = ['deposit', 'withdrawal', 'fee', 'interest', 'adjustment'];
 export const PROVIDER_IDS: ProviderId[] = ['yahoo', 'alphavantage', 'twelvedata', 'polygon'];
+/** Lista unică a monedelor acceptate; pentru una nouă se adaugă și un curs aproximativ în prices/store.ts. */
+export const CURRENCIES = ['RON', 'EUR', 'USD', 'GBP', 'CHF', 'PLN', 'SEK', 'DKK', 'NOK'] as const;
 /** Monede în care poate fi exprimat totalul portofoliului. */
-export const BASE_CURRENCIES = ['RON', 'EUR', 'USD'] as const;
+export const BASE_CURRENCIES = ['RON', 'EUR', 'USD', 'GBP'] as const;
 /** Monede acceptate pentru un activ (prețul lui de tranzacționare). */
-export const ASSET_CURRENCIES = ['RON', 'EUR', 'USD', 'GBP', 'CHF'] as const;
+export const ASSET_CURRENCIES = CURRENCIES;
 export const REFRESH_INTERVALS = [0, 1, 5, 15, 30, 60] as const;
 
 /** Culorile și iconițele din care se alege aspectul unui portofoliu. */

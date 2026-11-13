@@ -12,6 +12,7 @@ import {
   ProviderError,
   RateLimiter,
   splitExchangeSuffix,
+  toMajorUnits,
   toNumber,
   type HistoryResult,
   type LogoImage,
@@ -102,8 +103,8 @@ export class PolygonProvider implements PriceProvider {
       .map((r) => ({
         exDate: String(r.ex_dividend_date ?? ''),
         payDate: r.pay_date ? String(r.pay_date) : null,
-        amount: toNumber(r.cash_amount),
-        currency: r.currency ? String(r.currency).toUpperCase() : 'USD'
+        amount: toMajorUnits(toNumber(r.cash_amount), r.currency).price,
+        currency: toMajorUnits(1, r.currency).currency ?? 'USD'
       }))
       .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.exDate) && d.amount > 0);
   }
@@ -143,7 +144,7 @@ export class PolygonProvider implements PriceProvider {
         name: String(t.name ?? ''),
         exchange: t.primary_exchange ? String(t.primary_exchange) : null,
         type,
-        currency: t.currency_name ? String(t.currency_name).toUpperCase() : null
+        currency: toMajorUnits(1, t.currency_name).currency
       });
     }
     return results;

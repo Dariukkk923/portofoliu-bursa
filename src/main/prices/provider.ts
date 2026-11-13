@@ -182,3 +182,27 @@ export function splitExchangeSuffix(symbol: string): { ticker: string; suffix: s
 }
 
 export const toNumber = (v: unknown): number => (typeof v === 'number' ? v : Number.parseFloat(String(v)));
+
+/**
+ * Unele burse cotează în subunități: Londra în pence („GBp”/„GBX”), 100 pence = 1 liră. Aplicația lucrează
+ * doar cu unitatea principală, deci toate prețurile care intră (cotație, istoric, dividende) trec pe aici.
+ */
+export const isMinorUnit = (currency: unknown): boolean => currency === 'GBp' || currency === 'GBX';
+
+/** Prețul în unitatea principală și moneda ei („GBp” -> „GBP”); alte monede doar se scriu cu majuscule. */
+export function toMajorUnits(price: number, currency: unknown): { price: number; currency: string | null } {
+  if (isMinorUnit(currency)) return { price: price / 100, currency: 'GBP' };
+  return { price, currency: currency ? String(currency).toUpperCase() : null };
+}
+
+/** Curs încrucișat prin a doua serie: pentru fiecare zi din `a` se folosește ultimul punct din `b` până la acea zi. */
+export function crossSeries(a: { date: string; close: number }[], b: { date: string; close: number }[]): { date: string; close: number }[] {
+  const sorted = [...b].sort((x, y) => (x.date < y.date ? -1 : 1));
+  const out: { date: string; close: number }[] = [];
+  let j = -1;
+  for (const p of [...a].sort((x, y) => (x.date < y.date ? -1 : 1))) {
+    while (j + 1 < sorted.length && sorted[j + 1].date <= p.date) j++;
+    if (j >= 0) out.push({ date: p.date, close: p.close * sorted[j].close });
+  }
+  return out;
+}

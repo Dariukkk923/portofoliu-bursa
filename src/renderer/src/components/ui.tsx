@@ -11,6 +11,8 @@ import {
   type TextareaHTMLAttributes
 } from 'react';
 import { LoaderCircle, RotateCcw, TriangleAlert, X } from 'lucide-react';
+import type { AssetType } from '@shared/types';
+import { marketStatus } from '@shared/exchanges';
 import { pnlClass } from '../lib/format';
 
 export const cx = (...parts: (string | false | null | undefined)[]): string => parts.filter(Boolean).join(' ');
@@ -337,3 +339,17 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Șterge', onConf
 
 export const TH = 'px-3 py-2.5 text-left text-xs font-semibold text-ink-3 whitespace-nowrap';
 export const TD = 'px-3 py-2.5 text-body text-ink whitespace-nowrap';
+
+/* ------------------------------------------------------------------ piață */
+
+/** Punct + text „Piață deschisă / închisă” lângă preț; nimic când bursa nu se cunoaște (bonduri, curs valutar). */
+export function MarketDot({ symbol, type, className }: { symbol: string; type?: AssetType | 'fx' | null; className?: string }) {
+  const open = marketStatus(symbol, type);
+  if (open === null) return null;
+  const label = open ? 'Piață deschisă' : 'Piață închisă';
+  return (
+    <span className={cx('inline-flex items-center', className)} title={label} role="img" aria-label={label}>
+      <span className={cx('size-1.5 rounded-full', open ? 'bg-gain' : 'border border-ink-3')} aria-hidden />
+    </span>
+  );
+}
