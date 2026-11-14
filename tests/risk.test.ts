@@ -209,7 +209,9 @@ describe('indicele de referință', () => {
     expect(perf.benchmark?.return).toBeCloseTo(0.21, 10);
     // Portofoliul: 3.000 RON în acțiuni (+10%) și 7.000 RON cash: +3%.
     expect(perf.benchmark?.portfolioReturn).toBeCloseTo(0.03, 10);
-    expect(perf.points[0].benchmark).toBe(0);
+    // Primul punct e ziua dinaintea primei tranzacții (valoare 0), fără date pentru indice; indicele pornește de la `start`.
+    expect(perf.points[0]).toMatchObject({ date: addDays(start, -1), value: 0, benchmark: null });
+    expect(perf.points[1].benchmark).toBe(0);
     expect(perf.points[perf.points.length - 1].benchmark).toBeCloseTo(0.21, 10);
 
     // Un portofoliu cu indicele lui (BET prin ETF, în lei), care are date doar de la o dată ulterioară.

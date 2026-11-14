@@ -10,6 +10,7 @@ Aplicație desktop pentru monitorizarea investițiilor la bursă: acțiuni, ETF-
 - Știri despre companiile tale și raportările lor financiare (calendar, rezultate față de estimări, situații financiare)
 - Alerte personalizate: preț, mișcare zilnică, profit pe poziție, dividende, rezultate financiare și altele
 - Prețuri actualizate automat (Yahoo Finance, fără cheie; opțional Alpha Vantage, Twelve Data, Polygon)
+- Logo-urile companiilor și ale emitenților de ETF-uri, descărcate automat, fără cheie API
 - Mai mulți utilizatori pe același calculator, fiecare cu datele lui
 - Import/export CSV, backup și restaurare, temă întunecată (implicit) și luminoasă
 - Versiune pentru telefon (iPhone/Android), care se instalează din browser, fără App Store
@@ -140,10 +141,11 @@ Bine de știut:
 - **Profit realizat** = profitul din vânzări + dividendele și cupoanele nete (după impozitul reținut).
 - **Randament total** = (realizat + nerealizat) / suma tuturor cumpărărilor.
 - **Randamentul în timp (TWR)** ține cont de depuneri și retrageri: banii depuși nu sunt profit. Pentru fiecare zi, r = (valoare − depuneri nete din ziua respectivă) / valoarea din ziua precedentă − 1, iar zilele se compun. Banii neinvestiți nu aduc nimic. Comparația cu indicele folosește același calcul, iar ambele curbe pornesc de la 0%.
-- **Profitul pe perioadă** (1S … Tot): *realizat* = vânzările + dividendele și cupoanele nete din perioadă; *nerealizat* = cât s-a schimbat profitul nerealizat între începutul și sfârșitul perioadei. Perioada aleasă se ține minte.
-- **Conversia valutară** se face la cursul curent pentru toate sumele, deci câștigul sau pierderea din diferențe de curs nu sunt evidențiate separat.
+- **Profitul pe perioadă** (1S … Tot): *realizat* = vânzările + dividendele, cupoanele și dobânzile nete din perioadă; *nerealizat* = cât s-a schimbat profitul nerealizat între începutul și sfârșitul perioadei; plus diferențele de curs pe cash-ul în valută. Pe „Tot”, el este egal cu **valoarea portofoliului − suma investită**. Perioada aleasă se ține minte.
+- **Randamentul banilor tăi** (XIRR) ține cont de când ai depus fiecare sumă. Pe perioade de cel puțin un an este afișat pe an; pe perioade mai scurte se arată randamentul perioadei, fără anualizare (altfel câteva procente într-o lună ar apărea ca zeci de procente pe an).
+- **Conversia valutară** se face la cursul curent pentru poziții (cu împărțirea profitului în „din preț” și „din curs”); la cash-ul în valută, câștigul din curs se calculează față de cursul din ziua depunerii.
 - La **obligațiuni** se lucrează cu prețul curat: dobânda acumulată nu este inclusă în valoare.
-- **Graficul de evoluție** este reconstruit din tranzacții și din prețurile istorice zilnice; pentru activele fără istoric (de exemplu obligațiunile cu preț manual) se folosește costul.
+- **Graficul de evoluție** este reconstruit din tranzacții și din prețurile istorice zilnice și include cash-ul, deci ultimul punct este valoarea portofoliului; linia „Investit” este suma depusă net. Pentru activele fără istoric (de exemplu obligațiunile cu preț manual) se folosește costul.
 
 Aplicația este un instrument de evidență, nu de consultanță financiară sau fiscală.
 

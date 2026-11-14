@@ -30,6 +30,15 @@ import { PolygonProvider } from './polygon';
 import { TwelveDataProvider } from './twelvedata';
 import { YahooProvider } from './yahoo';
 import { isNetworkError, type PriceProvider, type Quote, type SymbolRef } from './provider';
+import {
+  brandLogoCandidates,
+  createKeylessLogoFinder,
+  symbolLogoCandidates,
+  type BrandInfo,
+  type KeylessLogoFinder,
+  type LogoCandidate,
+  type LogoFound
+} from './logos';
 import { fxSymbol, getCachedPrices, getHistorySync, getLogos, saveHistory, saveLogo, saveQuote, setHistorySync } from './store';
 
 /** Istoricul unui simbol se reîmprospătează cel mult o dată la atâtea ore (sau la 15 minute, la cerere). */
@@ -41,6 +50,11 @@ const WATCHLIST_HISTORY_DAYS = 100;
 const LOGOS_PER_RUN = 25;
 const LOGO_TTL_MS = 180 * 86_400_000;
 const NO_LOGO_RETRY_MS = 30 * 86_400_000;
+/**
+ * Marcajul „fără logo” după ce s-au încercat și sursele fără cheie. Marcajele vechi („none”, puse când
+ * existau doar providerii cu cheie) se reîncearcă imediat, o singură dată.
+ */
+const NO_LOGO = 'missing';
 /** Profilul (sector, țară) se reîmprospătează rar: o dată la 90 de zile, câte cel mult 20 de active pe rulare. */
 const PROFILE_TTL_MS = 90 * 86_400_000;
 const PROFILES_PER_RUN = 20;
@@ -53,6 +67,8 @@ export interface PriceServiceOptions {
   secrets: SecretBox;
   /** Înlocuiește construcția providerilor (folosit în teste). */
   providerFactory?: (id: ProviderId, apiKey: string | null) => PriceProvider | null;
+  /** Sursele de logo-uri fără cheie API (în teste: simulate sau null = dezactivate). Implicit: cele reale. */
+  keylessLogos?: KeylessLogoFinder | null;
   /** Anunțat la fiecare schimbare de stare (început/sfârșit de actualizare). */
   onStatus?: (userId: number, status: PriceStatus) => void;
 }
@@ -71,11 +87,13 @@ export class PriceService {
   /** Instanțele se păstrează (pe cheie), ca limitatorul de cereri să-și țină starea. */
   private readonly instances = new Map<string, PriceProvider>();
   private readonly states = new Map<number, UserState>();
+  private readonly keylessLogos: KeylessLogoFinder | null;
 
   constructor(options: PriceServiceOptions) {
     this.db = options.db;
     this.secrets = options.secrets;
     this.onStatus = options.onStatus;
+    this.keylessLogos = options.keylessLogos === undefined ? createKeylessLogoFinder() : options.keylessLogos;
     this.factory =
       options.providerFactory ??
       ((id, apiKey) => {
@@ -547,47 +565,94 @@ export class PriceService {
 
   /**
    * Simbolurile al căror logo lipsește din cache sau trebuie reîmprospătat. Crypto și obligațiunile
-   * nu se cer (crypto are iconițe incluse în aplicație), iar fără un provider care dă logo-uri nu se cere nimic.
+   * nu se cer (crypto are iconițe incluse în aplicație). Logo-urile vin și fără cheie API (vezi logos.ts).
    */
   logosToFetch(userId: number, refs: SymbolRef[]): SymbolRef[] {
-    if (!this.providerChain(userId).some((p) => p.getLogo)) return [];
+    if (!this.keylessLogos && !this.providerChain(userId).some((p) => p.getLogo)) return [];
     const cached = getLogos(this.db, userId, refs.map((r) => r.symbol));
     const now = Date.now();
     return refs.filter((r) => {
       if (r.type === 'crypto' || r.type === 'bond' || r.type === 'fx') return false;
       const c = cached.get(r.symbol);
-      return !c || now - Date.parse(c.fetchedAt) >= (c.dataUrl ? LOGO_TTL_MS : NO_LOGO_RETRY_MS);
+      if (!c || (!c.dataUrl && c.source !== NO_LOGO && this.keylessLogos)) return true;
+      return now - Date.parse(c.fetchedAt) >= (c.dataUrl ? LOGO_TTL_MS : NO_LOGO_RETRY_MS);
     });
   }
 
   /**
-   * Descarcă logo-urile cerute de la providerii configurați care le oferă (Twelve Data, Polygon) și le
-   * salvează local. Întoarce simbolurile pentru care s-a găsit un logo nou. Fără internet se oprește și
-   * reîncearcă la următoarea cerere.
+   * Descarcă logo-urile cerute și le salvează local, încercând pe rând:
+   *  1. sursele fără cheie, după ISIN și simbol (Parqet, Financial Modeling Prep);
+   *  2. providerii configurați care oferă logo-uri (Twelve Data, Polygon);
+   *  3. din profilul Yahoo: emitentul ETF-ului sau site-ul companiei (vezi logos.ts).
+   * Întoarce simbolurile pentru care s-a găsit un logo nou. Fără internet se oprește și reîncearcă la
+   * următoarea cerere; „fără logo” se notează doar când toate sursele au răspuns.
    */
   async fetchLogos(userId: number, refs: SymbolRef[]): Promise<string[]> {
-    const chain = this.providerChain(userId).filter((p) => p.getLogo);
+    const chain = this.providerChain(userId);
+    const logoProviders = chain.filter((p) => p.getLogo);
+    const brandProviders = chain.filter((p) => p.getBrand);
+    const keyless = this.keylessLogos;
     const found: string[] = [];
-    if (chain.length === 0) return found;
+    if (!keyless && logoProviders.length === 0) return found;
+    const isinStmt = this.db.prepare("SELECT isin FROM assets WHERE user_id = ? AND symbol = ? AND isin IS NOT NULL AND isin <> '' LIMIT 1");
+
     for (const ref of refs.slice(0, LOGOS_PER_RUN)) {
-      let answered = false;
-      let saved = false;
-      for (const provider of chain) {
+      const state = { answered: false, retryLater: false };
+      let hit: LogoFound | null = null;
+
+      const tryKeyless = async (candidates: LogoCandidate[]): Promise<LogoFound | null> => {
+        if (!keyless || candidates.length === 0) return null;
         try {
-          const image = await provider.getLogo!(ref);
-          answered = true;
-          if (image) {
-            saveLogo(this.db, userId, ref.symbol, image, provider.id);
-            found.push(ref.symbol);
-            saved = true;
-            break;
-          }
+          const result = await keyless.find(candidates);
+          state.answered = true;
+          return result;
         } catch (err) {
-          if (isNetworkError(err)) return found;
-          // cheie respinsă sau limită depășită: încercăm următorul provider
+          if (isNetworkError(err)) throw err;
+          state.retryLater = true; // limită de cereri: nu notăm „fără logo”
+          return null;
         }
+      };
+
+      try {
+        const isin = (isinStmt.get(userId, ref.symbol) as { isin: string } | undefined)?.isin ?? null;
+        hit = await tryKeyless(symbolLogoCandidates(ref, isin));
+
+        for (const provider of hit ? [] : logoProviders) {
+          try {
+            const image = await provider.getLogo!(ref);
+            state.answered = true;
+            if (image) {
+              hit = { image, source: provider.id };
+              break;
+            }
+          } catch (err) {
+            if (isNetworkError(err)) throw err;
+            // cheie respinsă sau limită depășită: încercăm următorul provider
+          }
+        }
+
+        for (const provider of hit || !keyless ? [] : brandProviders) {
+          let brand: BrandInfo | null = null;
+          try {
+            brand = await provider.getBrand!(ref);
+          } catch (err) {
+            if (isNetworkError(err)) throw err;
+            continue;
+          }
+          hit = await tryKeyless(brandLogoCandidates(ref, brand));
+          if (hit || brand) break;
+        }
+      } catch (err) {
+        if (isNetworkError(err)) return found;
+        continue;
       }
-      if (!saved && answered) saveLogo(this.db, userId, ref.symbol, null, 'none');
+
+      if (hit) {
+        saveLogo(this.db, userId, ref.symbol, hit.image, hit.source);
+        found.push(ref.symbol);
+      } else if (state.answered && !state.retryLater) {
+        saveLogo(this.db, userId, ref.symbol, null, keyless ? NO_LOGO : 'none');
+      }
     }
     return found;
   }

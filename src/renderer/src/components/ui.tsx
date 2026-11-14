@@ -114,7 +114,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
 /** Grup de butoane cu o singură opțiune activă (ex.: tipul activului, intervalul graficului). */
 export function Segmented<T extends string>({ value, options, onChange, size = 'md' }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; size?: 'sm' | 'md' }) {
   return (
-    <div role="radiogroup" className="inline-flex max-w-full flex-wrap gap-0.5 rounded-xl border border-line bg-surface-2 p-0.5">
+    <div role="radiogroup" className="inline-flex max-w-full flex-wrap gap-1">
       {options.map((o) => (
         <button
           key={o.value}
@@ -123,9 +123,9 @@ export function Segmented<T extends string>({ value, options, onChange, size = '
           aria-checked={o.value === value}
           onClick={() => onChange(o.value)}
           className={cx(
-            'shrink-0 rounded-lg font-medium whitespace-nowrap transition focus-visible:outline-2 focus-visible:outline-accent max-md:min-h-11',
-            size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-body',
-            o.value === value ? 'bg-brand text-brand-ink shadow-sm' : 'text-ink-2 hover:bg-surface hover:text-ink'
+            'shrink-0 rounded-xl font-medium whitespace-nowrap transition focus-visible:outline-2 focus-visible:outline-accent max-md:min-h-11',
+            size === 'sm' ? 'px-3 py-1.5 text-body' : 'px-3.5 py-1.5 text-body',
+            o.value === value ? 'brand-fill font-semibold' : 'text-ink-2 hover:bg-surface-2 hover:text-ink'
           )}
         >
           {o.label}
@@ -139,7 +139,7 @@ export function Segmented<T extends string>({ value, options, onChange, size = '
 
 export function Card({ title, action, children, className, padded = true }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; padded?: boolean }) {
   return (
-    <section className={cx('rounded-xl border border-line bg-surface shadow-card', className)}>
+    <section className={cx('dash-card', className)}>
       {(title || action) && (
         <header className="flex min-h-12 items-center justify-between gap-3 px-4 pt-3">
           <h2 className="text-md font-semibold text-ink">{title}</h2>

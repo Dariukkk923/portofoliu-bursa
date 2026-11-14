@@ -51,10 +51,10 @@
 
 .dark {
   color-scheme: dark;
-  --bg: #0b0d1a;
-  --surface: #12152a;
-  --surface-2: #1a1e38;
-  --line: #262b47;
+  --bg: #090a16;
+  --surface: #111326;
+  --surface-2: #191c35;
+  --line: #242849;
   --ink: #f3f4fb;
   --ink-2: #b1b8d3;
   --ink-3: #8f97b8;
@@ -74,7 +74,7 @@
   --overlay: rgb(3 4 12 / 0.65);
   --card-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.18);
   --pop-shadow: 0 16px 40px rgb(0 0 0 / 0.6);
-  --chart-line: #22c55e;
+  --chart-line: #2be06f;
   --series-1: #8b5cf6;
   --series-2: #22d3ee;
   --series-3: #facc15;
@@ -183,17 +183,6 @@ input[type='date']::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
 
-/* Cercul cu inițialele tickerului (când nu există logo): nuanța vine din simbol (--h). */
-.ticker-initials {
-  background: hsl(var(--h) 55% 92%);
-  color: hsl(var(--h) 55% 28%);
-  letter-spacing: -0.02em;
-}
-.dark .ticker-initials {
-  background: hsl(var(--h) 30% 22%);
-  color: hsl(var(--h) 65% 82%);
-}
-
 /* Recharts: fără contur de focus pe elementele SVG la click. */
 .recharts-wrapper :focus {
   outline: none;
@@ -260,9 +249,52 @@ input[type='date']::-webkit-calendar-picker-indicator {
   }
 }
 
-/* Linia graficului principal strălucește discret (doar în tema întunecată). */
+/* Linia graficului principal strălucește (doar în tema întunecată). */
 .dark .glow-line {
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--chart-line) 70%, transparent));
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--chart-line) 80%, transparent));
+}
+.dark .glow-violet {
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--series-1) 85%, transparent));
+}
+
+/*
+ * Cardurile: în tema întunecată au un degradeu discret de sus în jos, o margine fină
+ * și o lumină subțire pe muchia de sus, ca în aplicațiile de investiții moderne.
+ */
+.dash-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 1.125rem;
+  box-shadow: var(--card-shadow);
+}
+.dark .dash-card {
+  background: linear-gradient(180deg, #14172f 0%, #0f1123 100%);
+  border-color: rgb(255 255 255 / 0.075);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.045),
+    0 12px 32px rgb(0 0 0 / 0.28);
+}
+
+/* Elementul activ din meniu și butoanele principale: violet în degradeu, cu strălucire. */
+.brand-fill {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  color: #fff;
+  box-shadow: 0 8px 22px -8px rgb(124 58 237 / 0.75);
+}
+
+/* Punctul de la capătul graficului pulsează ușor. */
+@keyframes pulse-ring {
+  0% {
+    r: 5;
+    opacity: 0.7;
+  }
+  100% {
+    r: 14;
+    opacity: 0;
+  }
+}
+.pulse-ring {
+  animation: pulse-ring 1.8s ease-out infinite;
 }
 
 /* Graficele apar printr-o scurtă dezvăluire de la stânga la dreapta. */
@@ -280,15 +312,15 @@ input[type='date']::-webkit-calendar-picker-indicator {
 
 /* Cifrele mari din carduri se micșorează odată cu ecranul, ca „+33.479,84 RON” să încapă. */
 @utility text-kpi {
-  font-size: clamp(1.0625rem, 1.3vw, 1.5rem);
-  line-height: 1.5;
+  font-size: clamp(1.0625rem, 1.32vw, 1.625rem);
+  line-height: 1.4;
   @media (max-width: 639px) {
     font-size: 1.5rem;
   }
 }
 @utility text-kpi-hero {
-  font-size: clamp(1.5rem, 2.1vw, 2.125rem);
-  line-height: 1.2;
+  font-size: clamp(1.5rem, 1.95vw, 2.375rem);
+  line-height: 1.15;
   @media (max-width: 639px) {
     font-size: 1.625rem;
   }

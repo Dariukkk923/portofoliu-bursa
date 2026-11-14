@@ -350,7 +350,12 @@ export interface PortfolioTotals {
   income: number;
   /** realizedSales + income. */
   realized: number;
-  /** realized + unrealized. */
+  /**
+   * Câștigul din cursul valutar pe cash-ul în valută de la brokerii cu cash urmărit (ex.: dolari depuși
+   * la 4,5 lei, care azi valorează 4,8 lei). Zero când tot cash-ul e în moneda de bază.
+   */
+  cashFx: number;
+  /** realized + unrealized + cashFx = valoarea totală − banii depuși net (la cursurile zilelor depunerilor). */
   totalPnl: number;
   /** Suma tuturor cumpărărilor (inclusiv comisioane). */
   totalInvested: number;
@@ -417,8 +422,18 @@ export interface PerformanceData {
   /** Randamentul ponderat în timp (TWR) pe interval și anualizat (doar pentru intervale de cel puțin un an). */
   twr: number | null;
   twrAnnualized: number | null;
-  /** Randamentul ponderat cu banii (XIRR), anual. */
+  /**
+   * Randamentul ponderat cu banii (XIRR), anual. Doar pentru intervale de cel puțin un an: pe o perioadă
+   * scurtă, anualizarea transformă câteva procente în zeci (ca la `twrAnnualized`). Vezi `moneyWeighted`.
+   */
   xirr: number | null;
+  /**
+   * Randamentul banilor tăi pe interval, neanualizat (Modified Dietz): `gain` / (valoarea de la început +
+   * fluxurile ponderate cu timpul cât au stat investite). Are mereu același semn ca `gain`.
+   */
+  moneyWeighted: number | null;
+  /** Câștigul pe interval: valoarea de la sfârșit − valoarea de la început − `netFlows`. */
+  gain: number;
   startValue: number;
   endValue: number;
   /** Bani intrați net în interval (depuneri − retrageri, sau cumpărări − încasări unde cash-ul nu se urmărește). */
@@ -1235,7 +1250,7 @@ export interface PeriodProfit {
   from: string;
   to: string;
   baseCurrency: string;
-  /** Vânzări + dividende și cupoane nete din perioadă. */
+  /** Vânzări + venituri (dividende, cupoane, dobânzi nete − comisioane) din perioadă. */
   realized: number;
   realizedSales: number;
   income: number;
@@ -1243,6 +1258,13 @@ export interface PeriodProfit {
   unrealizedStart: number;
   unrealizedEnd: number;
   unrealizedChange: number;
+  /** Variația câștigului din curs pe cash-ul în valută (vezi `PortfolioTotals.cashFx`). */
+  cashFx: number;
+  /**
+   * Câștigul total pe perioadă = realized + unrealizedChange + cashFx. Este același cu `PerformanceData.gain`
+   * pe același interval, iar pentru „Tot” cu `PortfolioTotals.totalPnl`.
+   */
+  gain: number;
 }
 
 /* ---------------------------------------------------------------- alerte */

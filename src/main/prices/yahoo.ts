@@ -224,6 +224,26 @@ export class YahooProvider implements PriceProvider {
     }
   }
 
+  /** Site-ul companiei (acțiuni) și familia fondului (ETF-uri), pentru logo-uri: H2O.RO -> hidroelectrica.ro. */
+  async getBrand(ref: SymbolRef): Promise<{ website: string | null; fundFamily: string | null; name: string | null } | null> {
+    if (ref.type !== 'stock' && ref.type !== 'etf') return null;
+    try {
+      const modules = ref.type === 'etf' ? ['assetProfile', 'fundProfile', 'price'] : ['assetProfile', 'price'];
+      const res: Any = await this.yf().quoteSummary(ref.symbol, { modules }, { validateResult: false });
+      const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null);
+      const brand = {
+        website: text(res?.assetProfile?.website),
+        fundFamily: text(res?.fundProfile?.family),
+        name: text(res?.price?.longName ?? res?.price?.shortName)
+      };
+      return brand.website || brand.fundFamily || brand.name ? brand : null;
+    } catch (err) {
+      const e = this.wrap(err);
+      if (e.kind === 'notfound') return null;
+      throw e;
+    }
+  }
+
   async search(query: string): Promise<SymbolSearchResult[]> {
     try {
       const res: Any = await this.yf().search(query, { quotesCount: 10, newsCount: 0 });

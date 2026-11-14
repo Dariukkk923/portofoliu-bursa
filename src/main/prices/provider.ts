@@ -60,6 +60,8 @@ export interface PriceProvider {
   getQuote(ref: SymbolRef): Promise<Quote>;
   /** Opțional: logo-ul companiei (null = providerul nu are logo pentru simbol). */
   getLogo?(ref: SymbolRef): Promise<LogoImage | null>;
+  /** Opțional: site-ul companiei și emitentul fondului (pentru logo-urile găsite fără cheie API). */
+  getBrand?(ref: SymbolRef): Promise<{ website: string | null; fundFamily: string | null; name: string | null } | null>;
   /** Opțional: sectorul (categoria, la ETF-uri) și țara companiei, în engleză, cum le dă providerul. */
   getProfile?(ref: SymbolRef): Promise<AssetProfile | null>;
   /**

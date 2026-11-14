@@ -5,14 +5,15 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { User } from '@shared/types';
-import { performanceLooksOff } from '@shared/calc';
+import { cashFxPnl, Ledger, performanceLooksOff, sortTransactions } from '@shared/calc';
 import { addDays } from '@shared/dates';
 import { openDatabase, type Db } from '@main/db/database';
 import { register } from '@main/services/auth';
 import { createBroker } from '@main/services/brokers';
 import { updateSettings } from '@main/services/settings';
 import { addPurchase, createTransaction } from '@main/services/transactions';
-import { getOverview, getPerformance, getPeriodProfit, rangeStart } from '@main/services/portfolio';
+import { getHistory, getOverview, getPerformance, getPeriodProfit, rangeStart } from '@main/services/portfolio';
+import { buy as buyTx, tx } from './helpers';
 import { saveHistory, saveQuote } from '@main/prices/store';
 
 let db: Db;
@@ -168,5 +169,126 @@ describe('profitul pe perioadă', () => {
     const o = getOverview(db, user.id, {}, TODAY);
     expect(all.realized).toBeCloseTo(o.totals.realized, 6);
     expect(all.unrealizedEnd).toBeCloseTo(o.totals.unrealized, 6);
+  });
+});
+
+describe('aceleași cifre peste tot: câștigul pe perioadă, profitul total, graficul și randamentul', () => {
+  /** Toate vederile aceleiași perioade trebuie să dea același câștig. */
+  function expectConsistent(range: '1M' | '3M' | '1Y' | 'ALL'): void {
+    const perf = getPerformance(db, user.id, range, {}, TODAY);
+    const pp = getPeriodProfit(db, user.id, range, {}, TODAY);
+    expect(perf.gain).toBeCloseTo(perf.endValue - perf.startValue - perf.netFlows, 6);
+    expect(pp.gain).toBeCloseTo(pp.realized + pp.unrealizedChange + pp.cashFx, 6);
+    expect(pp.gain).toBeCloseTo(perf.gain, 6);
+    // Randamentul banilor are mereu semnul câștigului.
+    if (Math.abs(perf.gain) > 1e-6) expect(Math.sign(perf.moneyWeighted as number)).toBe(Math.sign(perf.gain));
+    if (range === 'ALL') {
+      const o = getOverview(db, user.id, {}, TODAY);
+      expect(o.totals.totalPnl).toBeCloseTo(perf.allTime.gain, 6);
+      expect(o.totals.totalPnl).toBeCloseTo(o.totals.totalValue - perf.allTime.netContributions, 6);
+      expect(perf.gain).toBeCloseTo(perf.allTime.gain, 6);
+    }
+    // Graficul de evoluție se termină la valoarea totală și la totalul investit net.
+    const h = getHistory(db, user.id, range, {}, TODAY);
+    expect(h[h.length - 1].value).toBeCloseTo(perf.endValue, 6);
+    expect(h[h.length - 1].invested).toBeCloseTo(perf.allTime.netContributions, 6);
+  }
+
+  it('depuneri, dividende, dobânzi, comisioane, vânzări și retrageri în perioadă', () => {
+    const b = createBroker(db, user.id, { name: 'Broker' });
+    createTransaction(db, user.id, { type: 'deposit', assetId: null, brokerId: b.id, date: '2025-01-02', currency: 'USD', amount: 2000 });
+    const { asset } = addPurchase(db, user.id, { asset: stock('HHH'), brokerId: b.id, date: '2025-01-02', quantity: 10, price: 100, fee: 1 });
+    createTransaction(db, user.id, { assetId: asset.id, brokerId: b.id, type: 'dividend', date: '2026-02-10', grossAmount: 5, taxWithheld: 0.5 });
+    createTransaction(db, user.id, { type: 'interest', assetId: null, brokerId: b.id, date: '2026-02-12', currency: 'USD', grossAmount: 2, taxWithheld: 0 });
+    createTransaction(db, user.id, { type: 'fee', assetId: null, brokerId: b.id, date: '2026-02-13', currency: 'USD', amount: 1 });
+    createTransaction(db, user.id, { assetId: asset.id, brokerId: b.id, type: 'sell', date: '2026-02-15', quantity: 2, price: 125, fee: 1 });
+    createTransaction(db, user.id, { type: 'withdrawal', assetId: null, brokerId: b.id, date: '2026-02-20', currency: 'USD', amount: 300 });
+    createTransaction(db, user.id, { type: 'deposit', assetId: null, brokerId: b.id, date: '2026-02-25', currency: 'USD', amount: 700 });
+    prices('HHH', [['2025-01-02', 100], ['2025-12-01', 120], [TODAY, 130]]);
+    for (const range of ['1M', '3M', '1Y', 'ALL'] as const) expectConsistent(range);
+  });
+
+  it('fără cash urmărit: prima zi intră în randament și în câștig', () => {
+    const b = createBroker(db, user.id, { name: 'Fără depuneri' });
+    addPurchase(db, user.id, { asset: stock('III'), brokerId: b.id, date: '2026-02-27', quantity: 10, price: 100, fee: 0 });
+    saveHistory(db, user.id, 'III', [{ date: '2026-02-27', close: 105 }], true, 'yahoo');
+    saveQuote(db, user.id, { symbol: 'III', price: 105, currency: 'USD', asOf: `${TODAY}T12:00:00Z`, provider: 'yahoo' });
+    const perf = getPerformance(db, user.id, 'ALL', {}, TODAY);
+    // Înainte, seria pornea de la valoarea de la închiderea primei zile, iar +5% din acea zi se pierdea.
+    expect(perf.twr as number).toBeCloseTo(0.05, 10);
+    expect(perf.gain).toBeCloseTo(50, 10);
+    expect(perf.moneyWeighted as number).toBeCloseTo(0.05, 10);
+    expect(perf.xirr).toBeNull(); // sub un an nu se anualizează
+    expectConsistent('ALL');
+    expectConsistent('1M');
+  });
+
+  it('bani mulți puși după o scădere: TWR negativ, dar câștigul și randamentul banilor sunt pozitive', () => {
+    const b = createBroker(db, user.id, { name: 'XTB' });
+    addPurchase(db, user.id, { asset: stock('JJJ'), brokerId: b.id, date: '2026-01-02', quantity: 1, price: 100, fee: 0 });
+    addPurchase(db, user.id, { asset: stock('JJJ'), brokerId: b.id, date: '2026-02-01', quantity: 100, price: 90, fee: 0 });
+    prices('JJJ', [['2026-01-02', 100], ['2026-02-01', 90], [TODAY, 91]]);
+    const perf = getPerformance(db, user.id, 'ALL', {}, TODAY);
+    expect(perf.gain).toBeCloseTo(101 * 91 - 100 - 9000, 6);
+    expect(perf.twr as number).toBeLessThan(-0.05); // −10%, apoi +1,1%
+    expect(perf.moneyWeighted as number).toBeGreaterThan(0);
+    expectConsistent('ALL');
+    expectConsistent('1M');
+  });
+
+  it('cash în valută: câștigul din curs intră în profit (moneda de bază RON)', () => {
+    updateSettings(db, user.id, { baseCurrency: 'RON' });
+    try {
+      const b = createBroker(db, user.id, { name: 'XTB USD' });
+      createTransaction(db, user.id, { type: 'deposit', assetId: null, brokerId: b.id, date: '2025-06-02', currency: 'USD', amount: 1000 });
+      addPurchase(db, user.id, { asset: stock('KKK'), brokerId: b.id, date: '2025-09-01', quantity: 5, price: 100, fee: 0 });
+      saveHistory(db, user.id, 'KKK', [{ date: '2025-09-01', close: 100 }], true, 'yahoo');
+      saveQuote(db, user.id, { symbol: 'KKK', price: 100, currency: 'USD', asOf: `${TODAY}T12:00:00Z`, provider: 'yahoo' });
+      saveHistory(
+        db,
+        user.id,
+        'USDRON=X',
+        [
+          { date: '2025-06-02', close: 4.5 },
+          { date: '2025-09-01', close: 4.6 },
+          { date: '2025-12-01', close: 4.7 }
+        ],
+        true,
+        'yahoo'
+      );
+      saveQuote(db, user.id, { symbol: 'USDRON=X', price: 4.8, currency: 'RON', asOf: `${TODAY}T12:00:00Z`, provider: 'yahoo' });
+
+      const o = getOverview(db, user.id, {}, TODAY);
+      expect(o.totals.totalValue).toBeCloseTo(4800, 6);
+      expect(o.totals.unrealized).toBeCloseTo(500 * 4.8 - 500 * 4.6, 6); // acțiunile: doar din curs
+      // Cash-ul: 500 USD cheltuiți la 4,6 (intrați la 4,5) + 500 USD rămași, azi la 4,8.
+      expect(o.totals.cashFx).toBeCloseTo(500 * 0.1 + 500 * 0.3, 6);
+      expect(o.totals.totalPnl).toBeCloseTo(4800 - 4500, 6);
+
+      const month = getPeriodProfit(db, user.id, '1M', {}, TODAY);
+      expect(month.cashFx).toBeCloseTo(500 * 0.1, 6); // 4,7 → 4,8
+      expect(month.unrealizedChange).toBeCloseTo(500 * 0.1, 6);
+      expect(month.gain).toBeCloseTo(100, 6);
+      for (const range of ['1M', '1Y', 'ALL'] as const) expectConsistent(range);
+    } finally {
+      updateSettings(db, user.id, { baseCurrency: 'USD' });
+    }
+  });
+
+  it('valoarea contabilă a cash-ului: ieșirile la cursul mediu, soldul negativ la cursul zilei', () => {
+    const rates: Record<string, number> = { '2025-01-01': 4, '2025-02-01': 5, '2025-03-01': 6, '2025-04-01': 5 };
+    const ledger = new Ledger({ method: 'AVG', currencyOf: () => 'USD', fxAt: (_c, d) => rates[d] }).applyAll(
+      sortTransactions([
+        tx({ type: 'deposit', date: '2025-01-01', assetId: null, currency: 'USD', netAmount: 100 }),
+        tx({ type: 'deposit', date: '2025-02-01', assetId: null, currency: 'USD', netAmount: 100 }), // medie 4,5
+        buyTx('2025-03-01', 1, 250, { currency: 'USD' }) // 200 USD la medie 4,5 ies la 6 (+300), apoi −50 USD la 6
+      ])
+    );
+    const [c] = ledger.cashBalances();
+    expect(c.amount).toBe(-50);
+    expect(c.fxRealizedBase?.toNumber()).toBeCloseTo(200 * (6 - 4.5), 10);
+    expect(c.bookBase?.toNumber()).toBeCloseTo(-50 * 6, 10);
+    // La 5 lei/USD: datoria de 50 USD a scăzut cu 50 lei.
+    expect(cashFxPnl([c], () => 5)?.toNumber()).toBeCloseTo(300 + 50, 10);
   });
 });

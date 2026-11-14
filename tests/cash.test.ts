@@ -156,8 +156,13 @@ describe('cash și randament în aplicație', () => {
     expect(perf.cashTracked).toBe(true);
     expect(perf.twr).toBeCloseTo(0.1, 10); // 1000 -> 1100 (jumătate din bani a stat cash)
     expect(perf.allTime).toEqual({ netContributions: 1000, currentValue: 1100, gain: 100 });
-    expect(perf.xirr).not.toBeNull();
-    expect(perf.points[0]).toMatchObject({ date: '2024-01-01', value: 1000, twr: 0 });
+    // Pe 9 zile, XIRR (anual) nu are sens; randamentul banilor pe perioadă: 100 / 1.000.
+    expect(perf.xirr).toBeNull();
+    expect(perf.moneyWeighted).toBeCloseTo(0.1, 10);
+    expect(perf.gain).toBeCloseTo(100, 10);
+    // Seria pornește din ziua dinaintea primei tranzacții (valoare 0), ca prima zi să conteze în randament.
+    expect(perf.points[0]).toMatchObject({ date: '2023-12-31', value: 0, twr: 0 });
+    expect(perf.points[1]).toMatchObject({ date: '2024-01-01', value: 1000, twr: 0 });
   });
 
   it('fără depuneri, cumpărările sunt banii puși și vânzările banii scoși', () => {

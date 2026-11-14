@@ -133,16 +133,18 @@ export function setHistorySync(db: Db, userId: number, symbol: string, fromDate:
 export interface CachedLogo {
   dataUrl: string | null;
   fetchedAt: string;
+  /** De unde vine logo-ul („parqet”, „twelvedata”...) sau marcajul „fără logo”. */
+  source: string;
 }
 
 const toBase64 = (data: Uint8Array): string => Buffer.from(data).toString('base64');
 
 export function getLogos(db: Db, userId: number, symbols: string[]): Map<string, CachedLogo> {
-  const stmt = db.prepare('SELECT mime, data, fetched_at FROM logos WHERE user_id = ? AND symbol = ?');
+  const stmt = db.prepare('SELECT mime, data, source, fetched_at FROM logos WHERE user_id = ? AND symbol = ?');
   const out = new Map<string, CachedLogo>();
   for (const symbol of new Set(symbols)) {
-    const r = stmt.get(userId, symbol) as { mime: string | null; data: Uint8Array | null; fetched_at: string } | undefined;
-    if (r) out.set(symbol, { dataUrl: r.data && r.mime ? `data:${r.mime};base64,${toBase64(r.data)}` : null, fetchedAt: r.fetched_at });
+    const r = stmt.get(userId, symbol) as { mime: string | null; data: Uint8Array | null; source: string; fetched_at: string } | undefined;
+    if (r) out.set(symbol, { dataUrl: r.data && r.mime ? `data:${r.mime};base64,${toBase64(r.data)}` : null, fetchedAt: r.fetched_at, source: r.source });
   }
   return out;
 }

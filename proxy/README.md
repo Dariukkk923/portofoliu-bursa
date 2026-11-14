@@ -11,7 +11,9 @@ fișierele BNR sau imaginile logo (nu trimit antete CORS). Acest Worker transmit
   - `/yahoo/quoteSummary/<simbol>?modules=…`: sector, țară, calendarul dividendelor (cu cookie și crumb);
   - `/yahoo/search?q=…`: căutarea simbolurilor;
   - `/bnr?u=…`: doar fișiere `.xml` de pe `www.bnr.ro`;
-  - `/logo?u=…`: doar imagini de pe `api.twelvedata.com`, `logo.twelvedata.com` și `api.polygon.io`, cel mult 256 KB.
+  - `/logo?u=…`: doar imagini de pe `api.twelvedata.com`, `logo.twelvedata.com`, `api.polygon.io`, `assets.parqet.com`,
+    `financialmodelingprep.com` și favicon-urile Google (`www.google.com/s2/favicons`), cel mult 256 KB.
+    După actualizarea aplicației, publică din nou proxy-ul ca să primească noile surse de logo-uri.
 - Răspunde doar originii din `ALLOWED_ORIGIN` (aplicația ta); orice alt site primește 403.
 - Nu salvează și nu loghează nimic: fără KV, D1, R2, cron sau analytics, fără `console.log`, răspunsuri cu
   `cache-control: no-store`. Cheile API (Polygon pentru logo-uri) trec doar prin cerere și nu sunt citite sau păstrate.

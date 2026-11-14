@@ -8,7 +8,7 @@ import {
   Bell,
   Building2,
   ChartColumn,
-  ChartNoAxesCombined,
+  Check,
   ChartPie,
   ChevronDown,
   Coins,
@@ -27,6 +27,7 @@ import {
   Settings as SettingsIcon,
   ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   Target,
   WifiOff,
   type LucideIcon
@@ -192,7 +193,26 @@ function DueBadge({ due }: { due: number }) {
 
 /** Butonul rotund din bara de sus (reîmprospătare, filtre). */
 const TOP_BUTTON =
-  'relative flex size-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink-2 transition hover:border-brand/50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-55 md:size-10.5';
+  'relative flex size-11 shrink-0 items-center justify-center rounded-full text-ink-2 transition hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-55 md:size-11';
+
+/** Sigla: trei bare care urcă, în violet degradeu. */
+function BrandMark() {
+  const id = 'brand-mark-gradient';
+  return (
+    <svg viewBox="0 0 40 40" className="size-10 shrink-0 drop-shadow-[0_4px_14px_rgb(124_58_237/0.55)]" aria-hidden>
+      <defs>
+        <linearGradient id={id} x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="#6d28d9" />
+          <stop offset="100%" stopColor="#c4b5fd" />
+        </linearGradient>
+      </defs>
+      <path d="M5 35 L12 27 V35 Z" fill={`url(#${id})`} opacity="0.75" />
+      <rect x="14" y="20" width="6" height="15" rx="1.5" fill={`url(#${id})`} opacity="0.85" />
+      <rect x="23" y="12" width="6" height="23" rx="1.5" fill={`url(#${id})`} />
+      <rect x="32" y="4" width="6" height="31" rx="1.5" fill={`url(#${id})`} />
+    </svg>
+  );
+}
 
 function UserBox({ onDone }: { onDone?: () => void }) {
   const { user, logout } = useApp();
@@ -333,10 +353,10 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
   });
   const assets = useLoad(() => (purchase ? api.assets.list() : Promise.resolve(null)), [purchase]);
 
-  // Grupul paginii active rămâne deschis.
+  // Doar grupul paginii active rămâne deschis: meniul rămâne scurt și aerisit.
   useEffect(() => {
     const g = groupOf(page);
-    if (g) setOpened((o) => (o.includes(g) ? o : [...o, g]));
+    setOpened(g ? [g] : []);
   }, [page]);
 
   // O pagină nouă începe de sus, nu de unde a rămas cea veche.
@@ -367,15 +387,15 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
 
   return (
     <div className="flex h-full">
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-line bg-surface md:flex dark:bg-bg">
-        <div className="flex items-center gap-3 px-5 pt-6 pb-5">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-brand text-brand-ink shadow-lg shadow-brand/30">
-            <ChartNoAxesCombined className="size-5" aria-hidden />
-          </div>
-          <span className="text-lg leading-tight font-bold tracking-tight text-ink">Portofoliu Bursa</span>
+      <aside className="hidden w-72 shrink-0 flex-col border-r border-line bg-surface md:flex dark:bg-[#0b0c1b]">
+        <div className="flex items-center gap-3 px-6 pt-7 pb-8">
+          <BrandMark />
+          <span className="text-[1.3rem] leading-tight font-extrabold tracking-tight text-ink">
+            Portofoliu<span className="bg-gradient-to-r from-violet-400 to-violet-600 bg-clip-text text-transparent">Bursa</span>
+          </span>
         </div>
 
-        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3" aria-label="Meniu principal">
+        <nav className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 pb-3" aria-label="Meniu principal">
           {NAV.map((entry) => {
             const Icon = entry.icon;
             const selfActive = entry.own && page === entry.page;
@@ -392,12 +412,12 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
                     }}
                     aria-current={selfActive ? 'page' : undefined}
                     className={cx(
-                      'flex h-11 w-full items-center gap-3 rounded-xl px-3 text-md font-medium transition',
+                      'flex h-12.5 w-full items-center gap-3.5 rounded-xl px-4 text-[1.0625rem] font-medium transition',
                       entry.children && 'pr-10',
-                      selfActive ? 'bg-brand text-brand-ink shadow-lg shadow-brand/25' : childActive ? 'text-ink hover:bg-surface-2' : 'text-ink-2 hover:bg-surface-2 hover:text-ink'
+                      selfActive ? 'brand-fill' : childActive ? 'bg-surface-2/70 text-ink' : 'text-ink hover:bg-surface-2/70'
                     )}
                   >
-                    <Icon className="size-5" aria-hidden />
+                    <Icon className={cx('size-5.5', !selfActive && 'text-ink-2')} aria-hidden />
                     {entry.label}
                     {entry.key === 'positions' && due > 0 && !isOpen && <span className="size-2 rounded-full bg-warn" aria-label={`${due} de revizuit în jurnal`} />}
                   </button>
@@ -407,14 +427,14 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
                       aria-label={`${isOpen ? 'Închide' : 'Deschide'} grupul ${entry.label}`}
                       aria-expanded={isOpen}
                       onClick={() => toggle(entry.key)}
-                      className={cx('absolute top-1 right-1 flex size-9 items-center justify-center rounded-lg transition hover:bg-white/10', selfActive ? 'text-brand-ink' : 'text-ink-3 hover:bg-surface-2')}
+                      className={cx('absolute top-1.5 right-1.5 flex size-9.5 items-center justify-center rounded-lg transition hover:bg-white/10', selfActive ? 'text-brand-ink' : 'text-ink-3 hover:bg-surface-2')}
                     >
                       <ChevronDown className={cx('size-4 transition-transform', isOpen && 'rotate-180')} aria-hidden />
                     </button>
                   )}
                 </div>
                 {entry.children && isOpen && (
-                  <div className="mt-1 mb-1 space-y-0.5 pl-5">
+                  <div className="animate-in mt-1 mb-1.5 ml-6.5 space-y-0.5 border-l border-line pl-3">
                     {entry.children.map((c) => {
                       const CIcon = c.icon;
                       return (
@@ -424,8 +444,8 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
                           onClick={() => go(c.id)}
                           aria-current={page === c.id ? 'page' : undefined}
                           className={cx(
-                            'flex h-9.5 w-full items-center gap-2.5 rounded-lg px-3 text-body font-medium transition',
-                            page === c.id ? 'bg-brand text-brand-ink' : 'text-ink-2 hover:bg-surface-2 hover:text-ink'
+                            'flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-md font-medium transition',
+                            page === c.id ? 'brand-fill' : 'text-ink-2 hover:bg-surface-2/70 hover:text-ink'
                           )}
                         >
                           <CIcon className="size-4" aria-hidden />
@@ -441,14 +461,32 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
           })}
         </nav>
 
-        <p className="border-t border-line px-5 py-3 text-xs text-ink-3">{updated}</p>
+        <div className="m-4 mt-2 rounded-2xl border border-brand/45 bg-gradient-to-b from-brand/18 to-brand/6 p-4">
+          <p className="flex items-center gap-2 text-md font-bold text-ink">
+            <Sparkles className="size-5 text-accent" aria-hidden /> Prețuri live
+          </p>
+          <ul className="mt-2.5 space-y-1.5 text-body text-ink-2 [@media(max-height:860px)]:hidden">
+            <li className="flex items-start gap-2">
+              <Check className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
+              <span>Actualizate: {dateTime(priceStatus?.lastPriceUpdate)}</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Check className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
+              <span>Acțiuni, ETF-uri și crypto</span>
+            </li>
+          </ul>
+          <button type="button" onClick={() => void refreshPrices()} disabled={refreshing} className="brand-fill mt-3.5 flex h-11 w-full items-center justify-center gap-2 rounded-xl text-md font-semibold transition hover:brightness-110 disabled:opacity-70">
+            <RefreshCw className={cx('size-4', refreshing && 'animate-spin')} aria-hidden />
+            {refreshing ? 'Se actualizează…' : 'Actualizează acum'}
+          </button>
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="shrink-0 border-b border-line bg-surface dark:bg-bg">
           <div className="pt-safe md:hidden" />
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:min-h-18 md:flex-nowrap md:px-6">
-            <h1 className="min-w-0 text-xl font-bold tracking-tight text-ink max-md:flex-1 max-md:text-lg max-md:leading-tight md:mr-2 md:truncate">{TITLES[page]}</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:min-h-21 md:flex-nowrap md:px-8">
+            <h1 className="min-w-0 text-2xl font-bold tracking-tight text-ink max-md:flex-1 max-md:text-lg max-md:leading-tight md:mr-2 md:truncate">{TITLES[page]}</h1>
             {!OWN_SCOPE_PAGES.includes(page) && (
               <div className="max-md:order-3">
                 <PortfolioSwitcher onManage={() => go('portfolios')} />
@@ -460,7 +498,7 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
               type="button"
               onClick={() => setPalette(true)}
               aria-label="Caută simbol, companie sau ETF"
-              className="hidden h-11 w-full max-w-105 min-w-0 flex-1 items-center gap-3 rounded-xl border border-line bg-surface px-3.5 text-left text-body text-ink-3 transition hover:border-brand/50 md:flex"
+              className="hidden h-12 w-full max-w-120 min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-surface-2/60 px-4 text-left text-body text-ink-3 transition hover:border-brand/50 md:flex"
             >
               <Search className="size-4.5 shrink-0 text-ink-2" aria-hidden />
               <span className="min-w-0 flex-1 truncate">Caută simbol, companie sau ETF…</span>
@@ -486,7 +524,7 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
         </header>
 
         <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1600px] space-y-5 p-4 max-md:pb-28 md:p-6">
+          <div className="mx-auto max-w-[1680px] space-y-6 p-4 max-md:pb-28 md:p-7">
             {priceStatus?.offline && (
               <Notice tone="warn">
                 <span className="inline-flex items-center gap-1.5 font-medium">
@@ -495,7 +533,7 @@ export function Layout({ page, onNavigate, children }: { page: PageId; onNavigat
                 Aplicația folosește ultimele prețuri salvate ({dateTime(priceStatus.lastPriceUpdate)}).
               </Notice>
             )}
-            <div key={page} className="animate-in space-y-5">
+            <div key={page} className="animate-in space-y-6">
               {children}
             </div>
           </div>

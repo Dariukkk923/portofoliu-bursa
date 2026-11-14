@@ -99,6 +99,11 @@ describe('proxy-ul de prețuri', () => {
     expect((await call(enc('https://api.polygon.io/big.png'))).status).toBe(413);
     expect((await call(enc('https://api.polygon.io/page.html'))).status).toBe(415);
     expect((await call(enc('https://evil.example/icon.png'))).status).toBe(400);
+    // Sursele fără cheie: Parqet, FMP și doar serviciul de favicon-uri de pe www.google.com.
+    expect((await call(enc('https://assets.parqet.com/logos/symbol/NVDA?format=png'))).status).toBe(200);
+    expect((await call(enc('https://financialmodelingprep.com/image-stock/NVDA.png'))).status).toBe(200);
+    expect((await call(enc('https://www.google.com/s2/favicons?domain=nvidia.com&sz=128'))).status).toBe(200);
+    expect((await call(enc('https://www.google.com/search?q=x'))).status).toBe(400);
     expect((await call(enc('http://api.polygon.io/icon.png'))).status).toBe(400);
   });
 

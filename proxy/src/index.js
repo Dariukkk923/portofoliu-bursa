@@ -17,7 +17,7 @@
  *   GET /yahoo/quoteSummary/<simbol>?modules=a,b                      profil, calendar dividende (cu crumb)
  *   GET /yahoo/search?q=&quotesCount=&newsCount=                      căutare simboluri
  *   GET /bnr?u=<adresa .xml de pe www.bnr.ro>                         cursurile oficiale BNR
- *   GET /logo?u=<adresa imaginii>                                     logo (Twelve Data, Polygon)
+ *   GET /logo?u=<adresa imaginii>                                     logo (Twelve Data, Polygon, Parqet, FMP, favicon Google)
  * Cursurile valutare (EURRON=X etc.) sunt simboluri Yahoo, deci trec prin /yahoo/chart și /yahoo/quote.
  */
 
@@ -26,8 +26,20 @@ const YAHOO = 'https://query1.finance.yahoo.com';
 const UA = 'portofoliu-bursa-proxy/1.0';
 const MAX_LOGO_BYTES = 256 * 1024;
 
-/** Hosturile permise pentru /logo (se potrivește hostul exact). */
-const LOGO_HOSTS = new Set(['api.twelvedata.com', 'logo.twelvedata.com', 'api.polygon.io']);
+/**
+ * Hosturile permise pentru /logo (se potrivește hostul exact): providerii cu cheie și sursele fără cheie
+ * (Parqet, Financial Modeling Prep, favicon-urile Google; acesta din urmă redirecționează spre *.gstatic.com).
+ */
+const LOGO_HOSTS = new Set([
+  'api.twelvedata.com',
+  'logo.twelvedata.com',
+  'api.polygon.io',
+  'assets.parqet.com',
+  'financialmodelingprep.com',
+  'www.google.com'
+]);
+/** La www.google.com este permis doar serviciul de favicon-uri. */
+const LOGO_PATHS = { 'www.google.com': /^\/s2\/favicons$/ };
 
 const CHART_PARAMS = ['period1', 'period2', 'interval', 'events', 'range', 'includePrePost'];
 const SYMBOL = /^[A-Za-z0-9.\-=^_/]{1,24}$/;
@@ -122,7 +134,10 @@ export default {
       }
       if (parts[0] === 'logo' && parts.length === 1) {
         const target = new URL(q.get('u') ?? '', 'https://invalid.invalid');
-        if (target.protocol !== 'https:' || !LOGO_HOSTS.has(target.hostname)) return reply(400, 'Adresă de logo nepermisă.', origin);
+        const pathRule = LOGO_PATHS[target.hostname];
+        if (target.protocol !== 'https:' || !LOGO_HOSTS.has(target.hostname) || (pathRule && !pathRule.test(target.pathname))) {
+          return reply(400, 'Adresă de logo nepermisă.', origin);
+        }
         const res = await fetch(target.href, { headers: { 'user-agent': UA, accept: 'image/png, image/jpeg, image/webp, image/gif, image/svg+xml' } });
         const type = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
         if (!res.ok || !type.startsWith('image/')) return reply(res.ok ? 415 : res.status, 'Nu este o imagine.', origin);

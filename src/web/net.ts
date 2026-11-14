@@ -22,6 +22,8 @@ export function normalizeProxyUrl(raw: string): string | null {
 
 /** Hosturile apelate direct (răspund cu antete CORS). */
 const DIRECT_HOSTS = new Set(['www.alphavantage.co', 'api.twelvedata.com', 'api.polygon.io']);
+/** Sursele de logo-uri care răspund cu CORS (merg și fără proxy). Parqet și Google nu au CORS: trec prin proxy. */
+const DIRECT_IMAGE_HOSTS = new Set(['financialmodelingprep.com']);
 
 export const PROXY_MISSING = 'Pentru această funcție este nevoie de proxy-ul de prețuri. Adaugă adresa lui în Setări.';
 
@@ -31,7 +33,7 @@ export function createRoutedFetch(getProxy: () => string | null, base: typeof fe
     const url = new URL(href);
     // Imaginile (logo-urile) cer antetul „accept: image/…”; JSON-ul și XML-ul nu.
     const wantsImage = new Headers(init?.headers).get('accept')?.includes('image/') ?? false;
-    if (DIRECT_HOSTS.has(url.hostname) && !wantsImage) return base(input, init);
+    if (wantsImage ? DIRECT_IMAGE_HOSTS.has(url.hostname) : DIRECT_HOSTS.has(url.hostname)) return base(input, init);
     const proxy = getProxy();
     if (!proxy) throw new TypeError(`network: ${PROXY_MISSING}`);
     const target = wantsImage ? `${proxy}/logo?u=${encodeURIComponent(href)}` : `${proxy}/bnr?u=${encodeURIComponent(href)}`;

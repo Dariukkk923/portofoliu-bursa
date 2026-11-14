@@ -227,9 +227,10 @@ describe('logo-urile', () => {
   it('se descarcă doar de la providerii configurați care le oferă și se păstrează local', async () => {
     const twelve = new LogoProvider('twelvedata', { AAPL: png(1), XYZ: null });
     const polygon = new LogoProvider('polygon', { XYZ: new ProviderError('ratelimit', 'limită') });
-    const make = () => new PriceService({ db, secrets, providerFactory: (id) => (id === 'yahoo' ? new FakeProvider('yahoo') : id === 'twelvedata' ? twelve : id === 'polygon' ? polygon : null) });
+    // Sursele fără cheie (Parqet, FMP...) sunt dezactivate aici; au testele lor în logos.test.ts.
+    const make = () => new PriceService({ db, secrets, keylessLogos: null, providerFactory: (id) => (id === 'yahoo' ? new FakeProvider('yahoo') : id === 'twelvedata' ? twelve : id === 'polygon' ? polygon : null) });
 
-    // Fără nicio cheie API: doar Yahoo, care nu dă logo-uri; nu se cere nimic.
+    // Fără nicio cheie API și fără sursele fără cheie: doar Yahoo, care nu dă logo-uri; nu se cere nimic.
     expect(make().logosToFetch(ana.id, [{ symbol: 'AAPL', type: 'stock' }])).toEqual([]);
 
     setApiKey(db, secrets, ana.id, 'twelvedata', 'cheie-td');
@@ -259,7 +260,7 @@ describe('logo-urile', () => {
   it('fără internet se oprește fără să marcheze simbolurile ca „fără logo”', async () => {
     setApiKey(db, secrets, ana.id, 'twelvedata', 'cheie-td');
     const offline = new LogoProvider('twelvedata', { AAPL: new ProviderError('network', 'fetch failed'), MSFT: png(2) });
-    const service = new PriceService({ db, secrets, providerFactory: (id) => (id === 'twelvedata' ? offline : id === 'yahoo' ? new FakeProvider('yahoo') : null) });
+    const service = new PriceService({ db, secrets, keylessLogos: null, providerFactory: (id) => (id === 'twelvedata' ? offline : id === 'yahoo' ? new FakeProvider('yahoo') : null) });
     expect(await service.fetchLogos(ana.id, [{ symbol: 'AAPL', type: 'stock' }, { symbol: 'MSFT', type: 'stock' }])).toEqual([]);
     expect(offline.calls).toEqual(['logo:AAPL']);
     expect(getLogos(db, ana.id, ['AAPL', 'MSFT']).size).toBe(0);

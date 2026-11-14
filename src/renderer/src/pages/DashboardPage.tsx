@@ -14,12 +14,12 @@ import { BenchmarkCard } from '../components/BenchmarkCard';
 import { GoalsSummary } from './GoalsPage';
 import { AnimatedNumber, Button, Card, EmptyState, LoadError, Notice, Pnl, Segmented, Skeleton, cx } from '../components/ui';
 import type { PageId } from '../components/Layout';
-import { AllocationBlock, DashboardSkeleton, InfoTip, KpiCard, Panel, PortfolioChart, PositionRow, ProjectionChart, ReturnBox, VsBenchmark, type AllocationPart } from '../components/dashboard';
+import { AllocationBlock, DashboardSkeleton, GainLine, InfoTip, KpiCard, Panel, PortfolioChart, PositionRow, ProjectionChart, ReturnBox, VsBenchmark, type AllocationPart } from '../components/dashboard';
 
 /** Card cu o cifră principală și un rând de detalii (secțiunea „Detalii profit”). */
 function Kpi({ label, value, detail }: { label: string; value: ReactNode; detail?: ReactNode }) {
   return (
-    <div className="card-hover rounded-xl border border-line bg-surface px-5 py-4 shadow-card">
+    <div className="dash-card card-hover px-6 py-5">
       <p className="text-body font-medium text-ink-2">{label}</p>
       <div className="tabular mt-1 text-kpi font-bold tracking-tight text-ink">{value}</div>
       {detail && <div className="mt-1 text-xs text-ink-2">{detail}</div>}
@@ -86,8 +86,11 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
     );
   }
 
-  const periodGain = pp ? pp.realized + pp.unrealizedChange : t.totalPnl;
-  const periodPct = rangePerf.data?.twr ?? (range === 'ALL' ? t.returnPct : null);
+  // Câștigul și procentul de sub valoare: aceleași cifre ca în graficul de evoluție, pentru perioada aleasă.
+  // Procentul e randamentul banilor (are mereu semnul câștigului); TWR-ul apare separat, în card.
+  const periodGain = rangePerf.data?.gain ?? (pp ? pp.gain : t.totalPnl);
+  const periodPct = rangePerf.data?.moneyWeighted ?? (range === 'ALL' ? t.returnPct : null);
+  const xirrAnnual = rangePerf.data?.xirr ?? null;
   const invested = performance.data?.allTime.netContributions ?? null;
   const profit = invested === null ? null : t.totalValue - invested;
 
@@ -114,21 +117,18 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
       {o.approximateFx && <Notice tone="warn">Cursurile valutare nu au putut fi descărcate încă; conversia în {base} folosește cursuri aproximative până la prima actualizare.</Notice>}
 
       {/* Rândul 1: cifrele principale */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1fr]">
-        <div className="card-hover relative flex min-w-0 items-center gap-4 rounded-xl border border-line bg-surface px-5 py-4 shadow-card sm:col-span-2 lg:col-span-1">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent ring-1 ring-brand/30 max-sm:size-10" aria-hidden>
-            <Layers className="size-6" />
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-[1.75fr_1fr_1fr_1fr_1fr]">
+        <div className="dash-card card-hover relative flex min-w-0 items-center gap-4 px-5 py-5 sm:col-span-2 lg:col-span-1">
+          <span className="flex size-13 shrink-0 items-center justify-center self-start rounded-full bg-accent-soft text-accent ring-1 ring-brand/35 max-sm:size-11" aria-hidden>
+            <Layers className="size-6.5" />
           </span>
-          <div className="min-w-0">
-            <p className="text-body font-medium text-ink-2">Valoare portofoliu</p>
-            <div className="tabular text-kpi-hero font-bold tracking-tight text-ink">
+          <div className="@container min-w-0 flex-1">
+            <p className="text-md font-medium text-ink">Valoare portofoliu</p>
+            <div className="tabular mt-1 text-[clamp(1.375rem,12.2cqi,2.375rem)] leading-tight font-extrabold tracking-tight whitespace-nowrap text-ink max-sm:text-[1.75rem]">
               <AnimatedNumber value={t.totalValue} format={(v) => money(v, base)} />
             </div>
-            <div className="flex flex-wrap items-center gap-x-2 text-body font-semibold">
-              <Pnl value={periodGain}>
-                <AnimatedNumber value={periodGain} format={(v) => signedMoney(v, base)} />
-              </Pnl>
-              {periodPct !== null && <Pnl value={periodPct}>({signedPercent(periodPct)})</Pnl>}
+            <div className="mt-1.5 flex flex-nowrap items-center gap-x-1 text-[clamp(0.75rem,7.1cqi,0.9375rem)] font-semibold whitespace-nowrap max-sm:text-body">
+              <GainLine value={periodGain} pct={periodPct} currency={base} />
               <InfoTip className="max-sm:absolute max-sm:top-1 max-sm:right-1" label="Ce arată variația" text={`Câștigul sau pierderea în perioada aleasă (${range === 'ALL' ? 'de la început' : RANGE_LABEL[range]}): profit realizat plus variația celui nerealizat. Procentul este randamentul TWR al perioadei.`} />
             </div>
           </div>
@@ -137,7 +137,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
           label="Investit"
           icon={<Wallet />}
           value={invested === null ? <Skeleton className="h-8 w-28" /> : <AnimatedNumber value={invested} format={(v) => money(v, base)} />}
-          detail="Total depus net"
+          detail="Total depus net (depuneri minus retrageri)"
         />
         <KpiCard
           label="Profit / Pierdere"
@@ -146,12 +146,12 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
             profit === null ? (
               <Skeleton className="h-8 w-28" />
             ) : (
-              <Pnl value={profit}>
+              <Pnl value={profit} arrow={false}>
                 <AnimatedNumber value={profit} format={(v) => signedMoney(v, base)} />
               </Pnl>
             )
           }
-          detail="Valoare − investit"
+          detail="Valoarea portofoliului minus suma investită"
         />
         <KpiCard
           label="Randament (TWR)"
@@ -162,29 +162,24 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
             ) : rangePerf.data.twr === null ? (
               <span className="text-ink-3">—</span>
             ) : (
-              <Pnl value={rangePerf.data.twr}>{signedPercent(rangePerf.data.twr)}</Pnl>
+              <Pnl value={rangePerf.data.twr} arrow={false}>
+                {signedPercent(rangePerf.data.twr)}
+              </Pnl>
             )
           }
-          detail={range === 'ALL' ? 'De la început' : `Perioada ${RANGE_LABEL[range]}`}
+          detail={range === 'ALL' ? 'Randamentul de la început' : `Randamentul în perioada ${RANGE_LABEL[range]}`}
         />
         <KpiCard
           label="Contribuții lunare"
           icon={<CalendarDays />}
           value={proj ? <AnimatedNumber value={proj.averageContribution} format={(v) => money(v, base)} /> : <Skeleton className="h-8 w-24" />}
-          detail="Medie, ultimele 12 luni"
+          detail="Media lunară a banilor depuși, ultimele 12 luni"
         />
       </div>
 
       {/* Rândul 2: evoluția și top pozițiile */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]">
-        <Panel
-          title={
-            <>
-              Evoluția portofoliului
-              <span className="hidden text-xs font-normal text-ink-3 2xl:inline">linia punctată = suma investită</span>
-            </>
-          }
-          action={<Segmented size="sm" value={range} onChange={setRange} options={periodOptions} />}>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
+        <Panel title="Evoluția portofoliului" action={<Segmented size="sm" value={range} onChange={setRange} options={periodOptions} />}>
           {history.error ? (
             <LoadError message={history.error} onRetry={history.reload} />
           ) : history.data && history.data.length > 1 ? (
@@ -192,7 +187,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
               <PortfolioChart data={history.data} currency={base} />
             </>
           ) : history.loading ? (
-            <Skeleton className="min-h-64 flex-1" />
+            <Skeleton className="min-h-72 flex-1" />
           ) : (
             <EmptyState icon={<ChartNoAxesCombined className="size-5" />} title="Prea puține date pentru grafic" text="Încearcă o perioadă mai lungă sau actualizează prețurile." />
           )}
@@ -208,7 +203,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
                   role="tab"
                   aria-selected={tab === k}
                   onClick={() => setTab(k)}
-                  className={cx('min-h-8 border-b-2 pb-1 text-md font-semibold whitespace-nowrap transition max-md:min-h-11', tab === k ? 'border-brand text-ink' : 'border-transparent text-ink-3 hover:text-ink')}
+                  className={cx('min-h-8 border-b-2 pb-1 whitespace-nowrap transition max-md:min-h-11', tab === k ? 'border-brand text-lg font-bold text-ink' : 'border-transparent text-md font-semibold text-ink-3 hover:text-ink')}
                 >
                   {TAB_LABEL[k]}
                 </button>
@@ -224,7 +219,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
           {rows.length === 0 ? (
             <p className="flex flex-1 items-center justify-center py-8 text-center text-body text-ink-3">{tab === 'losers' ? 'Nicio poziție pe pierdere.' : 'Nicio poziție de afișat.'}</p>
           ) : (
-            <ul className="divide-y divide-line/60" role="tabpanel">
+            <ul className="-mx-2 divide-y divide-line/70" role="tabpanel">
               {rows.map((p) => (
                 <PositionRow key={p.key} p={p} currency={base} onOpen={() => onNavigate('positions')} />
               ))}
@@ -234,29 +229,54 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
       </div>
 
       {/* Rândul 3: alocare, performanță, proiecție */}
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-[1.15fr_1.1fr_1.15fr]">
         <Panel title="Alocare portofoliu">
           <AllocationBlock parts={parts} total={t.totalValue} currency={base} />
         </Panel>
 
-        <Panel title={<>Performanță</>}>
+        <Panel
+          title={
+            <>
+              Performanță
+              <InfoTip label="Ce arată performanța" text="TWR: cât a crescut portofoliul, fără influența depunerilor. XIRR: randamentul anual al banilor tăi, ținând cont de când i-ai depus. Ambele pentru perioada aleasă la grafic." />
+            </>
+          }
+        >
           <div className="grid grid-cols-2 gap-3">
             <ReturnBox label="TWR" value={rangePerf.data?.twr ?? null} tip="Randamentul ponderat în timp: cât a crescut portofoliul, fără influența banilor depuși sau retrași." />
-            <ReturnBox label="XIRR" value={rangePerf.data?.xirr ?? null} tip="Randamentul anual ținând cont de momentul și mărimea fiecărei depuneri. Arată cât ai câștigat tu, cu banii tăi." />
+            {xirrAnnual !== null ? (
+              <ReturnBox label="XIRR" value={xirrAnnual} tip="Randamentul pe an ținând cont de momentul și mărimea fiecărei depuneri. Arată cât ai câștigat tu, cu banii tăi." />
+            ) : (
+              <ReturnBox
+                label="Banii tăi"
+                value={rangePerf.data?.moneyWeighted ?? null}
+                tip="Cât au câștigat banii tăi în perioada aleasă, ținând cont de când i-ai depus. Pe perioade sub un an nu se anualizează (XIRR ar exagera câteva procente în zeci)."
+              />
+            )}
           </div>
-          <p className="mt-5 mb-3 text-md font-semibold text-ink">vs {rangeBench} (perioada aleasă)</p>
+          <p className="mt-6 mb-4 text-lg font-bold text-ink">
+            vs {rangeBench} <span className="font-semibold">({RANGE_LABEL[range]})</span>
+          </p>
           {rangePerf.error ? <LoadError message={rangePerf.error} onRetry={rangePerf.reload} /> : rangePerf.data ? <VsBenchmark perf={rangePerf.data} /> : <Skeleton className="h-16" />}
         </Panel>
 
-        <Panel title="Proiecție creștere portofoliu" className="md:max-xl:col-span-2">
+        <Panel
+          title={
+            <>
+              Proiecție creștere portofoliu
+              <InfoTip label="Cum se calculează proiecția" text="Estimare pornind de la valoarea de azi, randamentul tău anual și media depunerilor lunare. Nu este o garanție." />
+            </>
+          }
+          className="md:max-xl:col-span-2"
+        >
           {proj ? (
             <>
               <ProjectionChart points={points} currency={proj.currency} />
-              <div className="mt-4 grid grid-cols-3 divide-x divide-line text-center">
+              <div className="mt-5 grid grid-cols-3 divide-x divide-line text-center">
                 {PROJECTION_YEARS.map((y) => (
                   <div key={y} className="min-w-0 px-2">
-                    <p className="text-body text-ink-2">{y} ani</p>
-                    <p className="tabular truncate text-md font-bold text-ink">{money(points[y]?.value ?? 0, proj.currency, 0)}</p>
+                    <p className="text-md text-ink-2">{y} ani</p>
+                    <p className="tabular mt-0.5 truncate text-lg font-bold text-ink">{money(points[y]?.value ?? 0, proj.currency, 0)}</p>
                   </div>
                 ))}
               </div>
@@ -307,11 +327,17 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
             <Kpi
               label={`Profit total · ${RANGE_LABEL[range]}`}
               value={
-                <Pnl value={pp.realized + pp.unrealizedChange}>
-                  <AnimatedNumber value={pp.realized + pp.unrealizedChange} format={(v) => signedMoney(v, base)} />
+                <Pnl value={pp.gain}>
+                  <AnimatedNumber value={pp.gain} format={(v) => signedMoney(v, base)} />
                 </Pnl>
               }
-              detail="Realizat în perioadă + variația celui nerealizat"
+              detail={
+                Math.abs(pp.cashFx) >= 0.005 ? (
+                  <span className="tabular">Realizat + variația celui nerealizat + curs pe cash ({signedMoney(pp.cashFx, base)})</span>
+                ) : (
+                  'Realizat în perioadă + variația celui nerealizat'
+                )
+              }
             />
             <Kpi
               label={`Profit nerealizat · ${RANGE_LABEL[range]}`}

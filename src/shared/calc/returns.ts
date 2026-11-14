@@ -47,6 +47,31 @@ export function periodReturn(startValue: number, endValue: number, flows: Flow[]
   return (endValue - startValue - net) / capital;
 }
 
+/** Câștigul pe toată seria: valoarea finală − valoarea de pornire − fluxurile de după punctul de pornire. */
+export function seriesGain(points: PerformancePoint[]): number {
+  if (points.length === 0) return 0;
+  const flows = points.slice(1).reduce((s, p) => s + p.flows.reduce((a, f) => a + f.amount, 0), 0);
+  return points[points.length - 1].value - points[0].value - flows;
+}
+
+/**
+ * Randamentul banilor pe toată seria, neanualizat (Modified Dietz pe întreg intervalul): câștigul împărțit la
+ * capitalul mediu investit. Are mereu semnul câștigului; null dacă nu a fost capital investit.
+ */
+export function moneyWeightedReturn(points: PerformancePoint[]): number | null {
+  if (points.length < 2) return null;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const length = Math.max(1, daysBetween(first.date, last.date));
+  let weighted = 0;
+  for (const p of points.slice(1)) {
+    for (const f of p.flows) weighted += f.amount * (Math.min(length, Math.max(0, daysBetween(f.date, last.date) + 1)) / length);
+  }
+  const capital = first.value + weighted;
+  if (!(capital > 1e-9)) return null;
+  return seriesGain(points) / capital;
+}
+
 /** TWR cumulat pentru fiecare punct (primul punct are 0%). */
 export function twrSeries(points: PerformancePoint[]): { date: string; twr: number }[] {
   const out: { date: string; twr: number }[] = [];

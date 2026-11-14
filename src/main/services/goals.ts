@@ -157,7 +157,9 @@ export function goalInputs(db: Db, userId: number, g: Goal, today: string = toda
   const symbol = benchmarkFor(db, userId, { portfolioId: g.portfolioId });
   const rows = (loadHistory(db, userId, [symbol]).get(symbol) ?? []).filter((r) => r.date >= LONG_HISTORY_FROM).map((r) => ({ date: r.date, close: r.close }));
   // Istoricul valorii (active + cash urmărit), la sfârșitul fiecărei luni: aceeași bază ca valoarea actuală.
-  const history = monthEnds(points.map((p) => ({ date: p.date, close: p.value }))).map((p) => ({ date: p.date, value: p.close }));
+  // Fără punctul de pornire (ziua dinaintea primei tranzacții, cu valoare 0).
+  const valued = points.length > 1 && points[0].value === 0 ? points.slice(1) : points;
+  const history = monthEnds(valued.map((p) => ({ date: p.date, close: p.value }))).map((p) => ({ date: p.date, value: p.close }));
   return {
     currency: overview.totals.baseCurrency,
     currentValue: overview.totals.totalValue,

@@ -199,6 +199,8 @@ export interface TotalsExtras {
   cash?: DecValue;
   /** Dobânzi la cash − comisioane fără activ. */
   otherIncome?: DecValue;
+  /** Câștigul din cursul valutar pe cash-ul în valută (realizat + nerealizat), vezi `cashFxPnl`. */
+  cashFx?: DecValue;
 }
 
 /**
@@ -217,7 +219,8 @@ export function summarize(valuations: Valuation[], baseCurrency: string, extras:
   const cash = dec(extras.cash);
   const unrealized = holdings.minus(totalCost);
   const realized = realizedSales.plus(income);
-  const totalPnl = realized.plus(unrealized);
+  const cashFx = dec(extras.cashFx ?? 0);
+  const totalPnl = realized.plus(unrealized).plus(cashFx);
 
   const open = positions.filter((v) => v.quantity > 0);
   const gains = open.filter((v) => v.unrealizedBase > 0);
@@ -246,6 +249,7 @@ export function summarize(valuations: Valuation[], baseCurrency: string, extras:
     realizedSales: toNum(realizedSales),
     income: toNum(income),
     realized: toNum(realized),
+    cashFx: toNum(cashFx),
     totalPnl: toNum(totalPnl),
     totalInvested: toNum(totalInvested),
     returnPct: ratio(totalPnl, totalInvested)

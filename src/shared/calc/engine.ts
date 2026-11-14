@@ -130,6 +130,28 @@ export interface CashBalance {
    * soldul ar fi doar −(cumpărări) + (vânzări), adică nu un cash real, și nu se adună la portofoliu.
    */
   tracked: boolean;
+  /**
+   * Valoarea contabilă a soldului în moneda de bază: fiecare intrare la cursul zilei ei, ieșirile la cursul
+   * mediu al soldului (null fără cursuri). Soldul la cursul de azi minus valoarea contabilă = câștigul
+   * nerealizat din curs pe cash-ul în valută.
+   */
+  bookBase: Decimal | null;
+  /** Câștigul realizat din curs: banii în valută cheltuiți (cumpărări, retrageri) la alt curs decât cel cu care au intrat. */
+  fxRealizedBase: Decimal | null;
+}
+
+/**
+ * Câștigul (sau pierderea) din cursul valutar pe cash-ul urmărit, în moneda de bază, la cursurile `fxAt` ale unei date:
+ * realizat (la cheltuirea valutei) + nerealizat (soldul la cursul datei − valoarea lui contabilă).
+ * Cash-ul în moneda de bază nu are câștig din curs. Null dacă lipsesc cursurile.
+ */
+export function cashFxPnl(balances: CashBalance[], fxAt: (currency: string) => DecValue): Decimal | null {
+  let total = ZERO;
+  for (const c of balances) {
+    if (c.bookBase === null || c.fxRealizedBase === null) return null;
+    total = total.plus(c.exact.times(dec(fxAt(c.currency))).minus(c.bookBase)).plus(c.fxRealizedBase);
+  }
+  return total;
 }
 
 /** Sumele unui broker care nu țin de un anumit activ: dobânzi la cash și comisioane generale. */
@@ -277,7 +299,10 @@ const addBase = (total: Decimal | null, amount: Decimal | null): Decimal | null 
 
 export class Ledger {
   private readonly positions = new Map<string, Acc>();
-  private readonly cash = new Map<string, { brokerId: number; portfolioId: number | null; currency: string; amount: Decimal }>();
+  private readonly cash = new Map<
+    string,
+    { brokerId: number; portfolioId: number | null; currency: string; amount: Decimal; book: Decimal | null; fxRealized: Decimal | null }
+  >();
   private readonly trackedAccounts = new Set<string>();
   private readonly brokerTotals = new Map<string, BrokerTotals>();
   private readonly saleLog: SaleRecord[] = [];
@@ -340,7 +365,24 @@ export class Ledger {
     const brokerId = tx.brokerId;
     if (brokerId == null || !currency || amount.isZero()) return;
     const key = `${accountKey(tx.portfolioId, brokerId)}:${currency}`;
-    const entry = this.cash.get(key) ?? { brokerId, portfolioId: tx.portfolioId ?? null, currency, amount: ZERO };
+    const start = this.fxAt ? ZERO : null;
+    const entry = this.cash.get(key) ?? { brokerId, portfolioId: tx.portfolioId ?? null, currency, amount: ZERO, book: start, fxRealized: start };
+    // Valoarea contabilă în moneda de bază (cost mediu): partea care micșorează soldul iese la cursul mediu
+    // al soldului (diferența față de cursul zilei e câștig realizat din curs), restul intră la cursul zilei.
+    const rate = this.toBase(dec(1), currency, tx.date);
+    if (entry.book !== null && entry.fxRealized !== null && rate !== null) {
+      const opposite = !entry.amount.isZero() && entry.amount.isNegative() !== amount.isNegative();
+      const offset = opposite ? Decimal.min(amount.abs(), entry.amount.abs()).times(amount.isNegative() ? -1 : 1) : ZERO;
+      if (!offset.isZero()) {
+        const bookOut = entry.book.times(offset).div(entry.amount);
+        entry.fxRealized = entry.fxRealized.plus(bookOut.minus(offset.times(rate)));
+        entry.book = entry.book.plus(bookOut);
+      }
+      entry.book = entry.book.plus(amount.minus(offset).times(rate));
+    } else {
+      entry.book = null;
+      entry.fxRealized = null;
+    }
     entry.amount = entry.amount.plus(amount);
     this.cash.set(key, entry);
   }
@@ -594,7 +636,9 @@ export class Ledger {
       currency: c.currency,
       amount: toNum(c.amount),
       exact: c.amount,
-      tracked: this.trackedAccounts.has(accountKey(c.portfolioId, c.brokerId))
+      tracked: this.trackedAccounts.has(accountKey(c.portfolioId, c.brokerId)),
+      bookBase: c.book,
+      fxRealizedBase: c.fxRealized
     }));
   }
 

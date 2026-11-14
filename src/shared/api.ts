@@ -121,7 +121,7 @@ export interface Api {
   logos: {
     /**
      * Logo-urile salvate local, ca „data URL” (null = încă nu există). Cele lipsă se descarcă în fundal
-     * de la providerii configurați care oferă logo-uri, iar la final vine evenimentul `logos:changed`.
+     * (surse fără cheie: Parqet, FMP, favicon-ul site-ului; apoi providerii cu cheie), iar la final vine evenimentul `logos:changed`.
      */
     get(requests: LogoRequest[]): Promise<Record<string, string | null>>;
   };

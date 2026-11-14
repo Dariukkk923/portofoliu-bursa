@@ -93,6 +93,9 @@ describe('rețeaua web', () => {
   it('fără proxy, cererile care îl cer dau eroare de rețea; alte hosturi nu se trimit', async () => {
     const none = createRoutedFetch(() => null, base);
     await expect(none('https://www.bnr.ro/x.xml')).rejects.toThrow(/proxy/);
+    // Logo-urile FMP au CORS: merg direct, și fără proxy; Parqet are nevoie de proxy.
+    expect(await none('https://financialmodelingprep.com/image-stock/NVDA.png', { headers: { accept: 'image/png' } })).toBeInstanceOf(Response);
+    await expect(none('https://assets.parqet.com/logos/symbol/NVDA?format=png', { headers: { accept: 'image/png' } })).rejects.toThrow(/proxy/);
     const f = createRoutedFetch(() => 'https://p.dev', base);
     await expect(f('https://exemplu.ro/a')).rejects.toThrow(/nepermisă/);
     expect(await none('https://www.alphavantage.co/query?x=1')).toBeInstanceOf(Response);
