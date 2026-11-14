@@ -384,9 +384,9 @@ export function GainLine({ value, pct, currency }: { value: number; pct: number 
 export function DashboardSkeleton() {
   return (
     <div className="space-y-6" role="status" aria-label="Se încarcă">
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-[1.55fr_1fr_1fr_1fr_1fr]">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 min-[1400px]:grid-cols-[1.75fr_1fr_1fr_1fr_1fr]">
         {[0, 1, 2, 3, 4].map((i) => (
-          <Skeleton key={i} className={cx('h-36 rounded-[1.125rem]', i === 0 && 'sm:col-span-2 lg:col-span-1')} />
+          <Skeleton key={i} className={cx('h-36 rounded-[1.125rem]', i === 0 && 'sm:col-span-2 lg:col-span-4 min-[1400px]:col-span-1')} />
         ))}
       </div>
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">

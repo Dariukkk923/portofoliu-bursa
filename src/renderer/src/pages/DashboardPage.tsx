@@ -117,8 +117,9 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
       {o.approximateFx && <Notice tone="warn">Cursurile valutare nu au putut fi descărcate încă; conversia în {base} folosește cursuri aproximative până la prima actualizare.</Notice>}
 
       {/* Rândul 1: cifrele principale */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-[1.75fr_1fr_1fr_1fr_1fr]">
-        <div className="dash-card card-hover relative flex min-w-0 items-center gap-4 px-5 py-5 sm:col-span-2 lg:col-span-1">
+      {/* Pe ecrane medii valoarea ocupă tot rândul și cele 4 carduri vin dedesubt; de la 1400 px, toate pe un rând. */}
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 min-[1400px]:grid-cols-[1.75fr_1fr_1fr_1fr_1fr]">
+        <div className="dash-card card-hover relative flex min-w-0 items-center gap-4 px-5 py-5 sm:col-span-2 lg:col-span-4 min-[1400px]:col-span-1">
           <span className="flex size-13 shrink-0 items-center justify-center self-start rounded-full bg-accent-soft text-accent ring-1 ring-brand/35 max-sm:size-11" aria-hidden>
             <Layers className="size-6.5" />
           </span>
