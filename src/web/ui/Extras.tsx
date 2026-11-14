@@ -49,7 +49,7 @@ export function WebSettingsExtras() {
         <form onSubmit={(e) => void save(e)} className="space-y-2">
           <Field
             label="Adresa proxy-ului de prețuri"
-            hint="Yahoo Finance, cursurile BNR și logo-urile nu pot fi cerute direct din browser. Adresa o primești după ce publici proxy-ul din folderul proxy (vezi proxy/README.md)."
+            hint="Prețurile de la Yahoo, cursurile BNR și logo-urile trec prin acest proxy. Aplicația are deja unul; schimbă adresa doar dacă vrei să folosești proxy-ul tău (vezi proxy/README.md). Câmp gol = proxy-ul aplicației."
           >
             <Input value={proxy} onChange={(e) => setProxy(e.target.value)} placeholder="https://portofoliu-proxy.contul-tau.workers.dev" inputMode="url" autoCapitalize="none" autoCorrect="off" />
           </Field>

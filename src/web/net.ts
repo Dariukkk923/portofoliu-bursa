@@ -3,7 +3,13 @@
  * direct din browser; Yahoo, cursurile BNR și imaginile logo trec prin proxy-ul Cloudflare din /proxy.
  */
 
-/** Adresa proxy-ului, setată de utilizator în Setări. */
+/**
+ * Proxy-ul publicat al aplicației (Cloudflare Worker din /proxy), folosit când utilizatorul nu și-a pus altul în Setări:
+ * așa prețurile merg imediat după instalare, fără nicio setare. Se poate înlocui la build cu VITE_PROXY_URL.
+ */
+export const DEFAULT_PROXY_URL: string | null = normalizeProxyUrl(import.meta.env.VITE_PROXY_URL ?? 'https://portofoliu-proxy.portofoliu-bursa.workers.dev');
+
+/** Adresa proxy-ului: cea din Setări sau, dacă nu există, cea implicită. */
 export const proxyConfig: { url: string | null } = { url: null };
 
 /** Adresa curățată: https (sau http pe localhost, pentru dezvoltare), fără „/” la final. Null dacă nu e validă. */

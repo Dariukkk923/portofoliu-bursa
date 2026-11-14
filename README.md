@@ -205,10 +205,11 @@ Dezinstalarea aplicației nu șterge acest folder. Fișierul bazei de date nu es
 
 Aplicația are și o versiune care rulează în browserul telefonului și se poate pune pe ecranul principal, ca o aplicație obișnuită.
 
-1. Deschide pe telefon adresa **https://dariukkk923.github.io/portofoliu-bursa/** (în Safari pe iPhone).
-2. Apasă **Partajare → Adaugă pe ecranul principal**.
+1. Deschide pe telefon adresa **https://dariukkk923.github.io/portofoliu-bursa/** (în Safari pe iPhone, în Chrome pe Android).
+2. iPhone: **Partajare → Adaugă pe ecranul principal**. Android: **⋮ → Adaugă pe ecranul de pornire** (sau **Instalează aplicația**).
 3. Deschide aplicația de pe ecranul principal și intră în cont (sau încearcă contul demo).
-4. Pentru prețurile de la Yahoo, cursurile BNR și logo-uri: **Setări → Versiunea pentru telefon** → lipește adresa proxy-ului (vezi mai jos). Fără proxy merg doar providerii cu cheie API (Alpha Vantage, Twelve Data, Polygon) și datele salvate.
+
+Prețurile de la Yahoo, cursurile BNR și logo-urile merg imediat, prin proxy-ul aplicației (`https://portofoliu-proxy.portofoliu-bursa.workers.dev`). Cine vrea propriul proxy îl poate pune în **Setări → Versiunea pentru telefon**; câmpul gol înseamnă proxy-ul aplicației.
 
 Bine de știut:
 
@@ -219,7 +220,7 @@ Bine de știut:
 
 **Pentru proprietarul proiectului (o singură dată):**
 
-1. **Proxy (Cloudflare Workers, gratuit):** `cd proxy && npx wrangler login && npx wrangler deploy`. În `proxy/wrangler.toml`, `ALLOWED_ORIGIN` trebuie să fie adresa site-ului (`https://dariukkk923.github.io`). Proxy-ul nu salvează și nu loghează nimic. Detalii în `proxy/README.md`.
+1. **Proxy (Cloudflare Workers, gratuit):** `cd proxy && npx wrangler login && npx wrangler deploy`. În `proxy/wrangler.toml`, `ALLOWED_ORIGIN` trebuie să fie adresa site-ului (`https://dariukkk923.github.io`). Proxy-ul nu salvează și nu loghează nimic. Este publicat la `https://portofoliu-proxy.portofoliu-bursa.workers.dev`, adresa implicită din `src/web/net.ts` (`DEFAULT_PROXY_URL`, sau `VITE_PROXY_URL` la build). După ce schimbi `proxy/src/index.js`, publică din nou cu `npx wrangler deploy`. Detalii în `proxy/README.md`.
 2. **GitHub Pages:** Settings → Pages → Source = **GitHub Actions**. Fiecare push pe `main` sau tag `v*` publică versiunea web (`.github/workflows/pages.yml`).
 
 ## Partea 2 — Pentru dezvoltatori

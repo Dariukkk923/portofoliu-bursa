@@ -13,7 +13,7 @@ import { openSqlJs, type SqlJsConnection } from './sqljs';
 import { openIdbKv, type Kv } from './kv';
 import { WebSecretBox } from './keystore';
 import { createWebPlatform } from './platform';
-import { createRoutedFetch, normalizeProxyUrl, proxyConfig } from './net';
+import { createRoutedFetch, DEFAULT_PROXY_URL, normalizeProxyUrl, proxyConfig } from './net';
 import { createWebYahooClient } from './yahooWeb';
 import type { FromWorker, PickedFile, ToWorker, WebConfig } from './protocol';
 
@@ -64,7 +64,7 @@ async function boot(): Promise<{ backend: Backend; kv: Kv; conn: SqlJsConnection
   };
   if (dirty) await flush();
 
-  proxyConfig.url = (await kv.get<string>('proxy-url')) ?? null;
+  proxyConfig.url = (await kv.get<string>('proxy-url')) ?? DEFAULT_PROXY_URL;
   setProviderFetch(createRoutedFetch(() => proxyConfig.url));
   setYahooClientFactory(() => createWebYahooClient(() => proxyConfig.url));
 
@@ -124,9 +124,10 @@ async function webCall(path: string, args: unknown[], ctx: Awaited<typeof ready>
     const raw = String(args[0] ?? '').trim();
     const url = raw ? normalizeProxyUrl(raw) : null;
     if (raw && !url) return { ok: false, error: 'Adresa proxy-ului trebuie să înceapă cu https://' };
-    proxyConfig.url = url;
+    // Câmp gol = înapoi la proxy-ul implicit al aplicației.
+    proxyConfig.url = url ?? DEFAULT_PROXY_URL;
     await (url ? ctx.kv.set('proxy-url', url) : ctx.kv.del('proxy-url'));
-    return { ok: true, data: url };
+    return { ok: true, data: proxyConfig.url };
   }
   return { ok: false, error: 'Operațiune necunoscută.' };
 }

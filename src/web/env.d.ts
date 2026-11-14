@@ -7,6 +7,10 @@ declare global {
   interface Window {
     bridge: Bridge;
   }
+  interface ImportMetaEnv {
+    /** Adresa proxy-ului implicit, dacă build-ul vrea alta decât cea din src/web/net.ts. */
+    readonly VITE_PROXY_URL?: string;
+  }
 }
 
 export {};
