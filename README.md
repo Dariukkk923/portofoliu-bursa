@@ -1,6 +1,6 @@
 # Portofoliu Bursa
 
-Aplicație desktop pentru monitorizarea investițiilor la bursă: acțiuni, ETF-uri, obligațiuni și crypto, la mai mulți brokeri și în mai multe monede. Datele stau doar pe calculatorul tău, într-o bază de date locală.
+Aplicație desktop pentru monitorizarea investițiilor la bursă: acțiuni, ETF-uri, obligațiuni și crypto, la mai mulți brokeri și în mai multe monede. Datele stau pe calculatorul tău, într-o bază de date locală; același cont merge și pe telefon, cu sincronizare automată criptată cap-coadă.
 
 - Portofoliu pe total sau pe broker, cu profit realizat și nerealizat
 - Istoric de tranzacții: cumpărări, vânzări, dividende, cupoane, split-uri
@@ -213,7 +213,8 @@ Prețurile de la Yahoo, cursurile BNR și logo-urile merg imediat, prin proxy-ul
 
 Bine de știut:
 
-- **Datele stau doar pe telefon**, în browser, separat de calculator. Dacă ștergi datele site-ului din Safari, se pierd. Fă des **backup** (Setări → Backup): fișierul se poate trimite pe email sau salva în Fișiere și se poate restaura și în aplicația de pe calculator.
+- **Același cont pe calculator și pe telefon:** pe telefon apeși **Autentificare** (nu „Cont nou”) cu numele și parola de pe calculator, iar datele apar singure. Modificările se sincronizează automat (cel mult un minut; **Setări → Sincronizare → Sincronizează acum** pentru imediat). Datele sunt criptate pe dispozitiv înainte de trimitere: serverul vede doar numele de utilizator și un fișier criptat; parola nu pleacă de pe dispozitiv. Dacă ai modificat pe ambele fără internet, aplicația te întreabă ce date păstrează. Contul demo nu se sincronizează.
+- Backup-ul manual (Setări → Backup) rămâne disponibil și se poate restaura pe oricare dispozitiv.
 - Merge și **fără internet**, cu ultimele prețuri salvate.
 - Alertele apar în clopoțel cât timp aplicația e deschisă (nu ca notificări pe ecranul blocat).
 - Situațiile financiare de la Yahoo nu sunt disponibile pe telefon; raportările folosesc Polygon sau Alpha Vantage, dacă ai cheie.
@@ -221,7 +222,7 @@ Bine de știut:
 **Pentru proprietarul proiectului (o singură dată):**
 
 1. **Proxy (Cloudflare Workers, gratuit):** `cd proxy && npx wrangler login && npx wrangler deploy`. În `proxy/wrangler.toml`, `ALLOWED_ORIGIN` trebuie să fie adresa site-ului (`https://dariukkk923.github.io`). Proxy-ul nu salvează și nu loghează nimic. Este publicat la `https://portofoliu-proxy.portofoliu-bursa.workers.dev`, adresa implicită din `src/web/net.ts` (`DEFAULT_PROXY_URL`, sau `VITE_PROXY_URL` la build). După ce schimbi `proxy/src/index.js`, publică din nou cu `npx wrangler deploy`. Detalii în `proxy/README.md`.
-2. **GitHub Pages:** Settings → Pages → Source = **GitHub Actions**. Fiecare push pe `main` sau tag `v*` publică versiunea web (`.github/workflows/pages.yml`).
+2. **GitHub Pages:** Settings → Pages → Source = **GitHub Actions**. Fiecare push pe `main` publică versiunea web (`.github/workflows/pages.yml`).
 
 ## Partea 2 — Pentru dezvoltatori
 
