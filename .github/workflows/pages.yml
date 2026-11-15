@@ -1,15 +1,13 @@
-# Publică versiunea web (PWA pentru iPhone) pe GitHub Pages la fiecare push pe main
-# și la fiecare tag „v*”. Adresa: https://<cont>.github.io/portofoliu-bursa/
+# Publică versiunea web (PWA pentru iPhone) pe GitHub Pages la fiecare push pe main.
+# Adresa: https://<cont>.github.io/portofoliu-bursa/
 #
-# Setare unică în depozit: Settings -> Pages -> Source: „GitHub Actions”. Dacă mediul „github-pages”
-# are reguli de ramuri, adaugă și tagurile „v*” (Settings -> Environments -> github-pages).
+# Setare unică în depozit: Settings -> Pages -> Source: „GitHub Actions”. Tagurile „v*” nu publică
+# (mediul „github-pages” acceptă doar main); commit-ul unei versiuni ajunge oricum pe main înainte de tag.
 name: Pages
 
 on:
   push:
     branches: [main]
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
