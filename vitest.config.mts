@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts']
+    include: ['tests/**/*.test.ts'],
+    // Derivarea cheilor de sincronizare (PBKDF2, 310.000 de iterații) și bcrypt sunt lente intenționat;
+    // pe mașinile GitHub Actions un test cu mai multe autentificări depășește limita implicită de 5 s.
+    testTimeout: 60_000
   }
 });
