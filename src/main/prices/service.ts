@@ -14,9 +14,12 @@ import {
   type ProviderId,
   type RefreshResult,
   type SymbolQuote,
+  type SymbolHistory,
+  type SymbolHistoryRange,
+  type SymbolHistoryRef,
   type SymbolSearchResult
 } from '@shared/types';
-import { addDays, todayIso } from '@shared/dates';
+import { addDays, addMonths, todayIso } from '@shared/dates';
 import { Ledger, sortTransactions } from '@shared/calc';
 import { BENCHMARKS } from '@shared/benchmarks';
 import type { Db } from '../db/database';
@@ -40,6 +43,7 @@ import {
   type LogoFound
 } from './logos';
 import { fxSymbol, getCachedPrices, getHistorySync, getLogos, saveHistory, saveLogo, saveQuote, setHistorySync } from './store';
+import { MemoCache, sliceSymbolHistory, thinPoints } from './symbolHistory';
 
 /** Istoricul unui simbol se reîmprospătează cel mult o dată la atâtea ore (sau la 15 minute, la cerere). */
 const HISTORY_TTL_MS = 12 * 3_600_000;
@@ -61,6 +65,11 @@ const PROFILES_PER_RUN = 20;
 /** Dividendele se verifică o dată la 3 zile pe simbol, câte cel mult 15 simboluri pe rulare. */
 const DIVIDEND_TTL_MS = 3 * 86_400_000;
 const DIVIDENDS_PER_RUN = 15;
+/** Previzualizarea simbolurilor căutate: istoricul de un an rămâne în memorie 10 minute, pentru cel mult 50 de simboluri. */
+const PREVIEW_TTL_MS = 10 * 60_000;
+const PREVIEW_MAX_SYMBOLS = 50;
+/** „Tot” istoricul: de la începutul datelor providerului (Yahoo îl dă de la listare). */
+const PREVIEW_ALL_FROM = '1970-01-02';
 
 export interface PriceServiceOptions {
   db: Db;
@@ -88,6 +97,9 @@ export class PriceService {
   private readonly instances = new Map<string, PriceProvider>();
   private readonly states = new Map<number, UserState>();
   private readonly keylessLogos: KeylessLogoFinder | null;
+  /** Istoricul de un an al simbolurilor previzualizate și cursurile lor (doar în memorie). */
+  private readonly previewSeries = new MemoCache<{ currency: string | null; points: { date: string; close: number }[] }>(PREVIEW_TTL_MS, PREVIEW_MAX_SYMBOLS);
+  private readonly previewRates = new MemoCache<number>(PREVIEW_TTL_MS, 20, true);
 
   constructor(options: PriceServiceOptions) {
     this.db = options.db;
@@ -710,5 +722,78 @@ export class PriceService {
       }
     }
     return null;
+  }
+
+  /**
+   * Graficul de previzualizare al unui simbol oarecare (căutare, watchlist, cumpărare): istoricul zilnic
+   * pe perioada aleasă, ultimul preț, variația și cursul față de moneda de bază. Se descarcă o singură dată
+   * un an de istoric zilnic (perioadele 1L–1A) și, separat, doar la cerere, tot istoricul în puncte săptămânale
+   * (perioada „ALL”), păstrate doar în memorie (nu se scrie nimic în baza de date). Nu aruncă erori:
+   * fără internet sau fără date întoarce o listă goală.
+   */
+  async symbolHistory(userId: number, ref: SymbolHistoryRef, range: SymbolHistoryRange, base?: string | null): Promise<SymbolHistory> {
+    const symbol = ref.symbol.trim().toUpperCase();
+    const whole = range === 'ALL';
+    const series =
+      symbol && ref.type !== 'bond'
+        ? await this.previewSeries.get(`${whole ? 'all' : 'year'}:${ref.type}:${symbol}`, () => this.loadPreviewSeries(userId, { symbol, type: ref.type }, whole))
+        : null;
+    const all = series?.points ?? [];
+    const { points, change } = sliceSymbolHistory(all, range, todayIso());
+    const prev = all[all.length - 2]?.close;
+    const dayChange = !whole && prev > 0 ? all[all.length - 1].close / prev - 1 : null;
+    const currency = series?.currency ?? (ref.currency ? ref.currency.toUpperCase() : null);
+    let fx: SymbolHistory['fx'] = null;
+    if (currency && all.length > 0) {
+      const to = (base || getSettings(this.db, userId).baseCurrency).toUpperCase();
+      const rate = to === currency ? null : await this.previewRate(userId, currency, to);
+      if (rate) fx = { currency: to, rate };
+    }
+    return { symbol, currency, points, last: all[all.length - 1]?.close ?? null, change, dayChange, weekly: whole, fx };
+  }
+
+  /**
+   * Un an (plus câteva zile) de istoric zilnic sau, cu `whole`, tot istoricul (săptămânal, rărit la ~300 de puncte),
+   * de la primul provider din lanț care are date.
+   */
+  private async loadPreviewSeries(userId: number, ref: SymbolRef, whole: boolean): Promise<{ currency: string | null; points: { date: string; close: number }[] } | null> {
+    const today = todayIso();
+    const from = whole ? PREVIEW_ALL_FROM : addDays(addMonths(today, -12), -7);
+    for (const provider of this.providerChain(userId)) {
+      try {
+        const result = await provider.getHistory(ref, from, today, whole ? { weekly: true } : undefined);
+        const byDate = new Map<string, number>();
+        for (const p of result.points) if (Number.isFinite(p.close) && p.close > 0) byDate.set(p.date, p.close);
+        if (byDate.size === 0) continue;
+        const points = [...byDate].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, close]) => ({ date, close }));
+        return { currency: result.currency ?? null, points: whole ? thinPoints(points) : points };
+      } catch (err) {
+        if (isNetworkError(err)) return null;
+      }
+    }
+    return null;
+  }
+
+  /** Cursul `from` -> `to`: din cotațiile deja salvate (doar citire) sau, altfel, cerut providerului și ținut în memorie. */
+  private async previewRate(userId: number, from: string, to: string): Promise<number | null> {
+    const direct = fxSymbol(from, to);
+    const inverse = fxSymbol(to, from);
+    const rows = this.db.prepare('SELECT symbol, price FROM prices WHERE user_id = ? AND symbol IN (?, ?)').all(userId, direct, inverse) as {
+      symbol: string;
+      price: number;
+    }[];
+    const saved = rows.find((r) => r.symbol === direct && r.price > 0) ?? rows.find((r) => r.price > 0);
+    if (saved) return saved.symbol === direct ? saved.price : 1 / saved.price;
+    return this.previewRates.get(direct, async () => {
+      for (const provider of this.providerChain(userId)) {
+        try {
+          const q = await provider.getQuote({ symbol: direct, type: 'fx' });
+          if (q.price > 0) return q.price;
+        } catch (err) {
+          if (isNetworkError(err)) return null;
+        }
+      }
+      return null;
+    });
   }
 }

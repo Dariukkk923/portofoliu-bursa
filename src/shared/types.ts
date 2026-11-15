@@ -45,7 +45,7 @@ export interface Portfolio {
   name: string;
   color: PortfolioColor;
   icon: PortfolioIcon;
-  /** Moneda în care se afișează totalurile portofoliului. */
+  /** Moneda de bază din setări (aceeași pentru toate portofoliile; se schimbă doar din Setări). */
   baseCurrency: string;
   /** Indicele de referință (ex.: ^GSPC); null = cel implicit. */
   benchmark: string | null;
@@ -60,7 +60,6 @@ export interface PortfolioInput {
   name: string;
   color?: PortfolioColor;
   icon?: PortfolioIcon;
-  baseCurrency?: string;
   benchmark?: string | null;
 }
 
@@ -487,6 +486,36 @@ export interface SymbolQuote {
   currency: string | null;
   asOf: string;
   provider: ProviderId;
+}
+
+/** Perioadele graficului din previzualizarea unui simbol (căutare, watchlist, cumpărare). */
+export const SYMBOL_HISTORY_RANGES = ['1M', '3M', '6M', 'YTD', '1Y', 'ALL'] as const;
+export type SymbolHistoryRange = (typeof SYMBOL_HISTORY_RANGES)[number];
+
+/** Instrumentul cerut pentru previzualizare (poate să nu fie deținut). */
+export interface SymbolHistoryRef {
+  symbol: string;
+  type: AssetType;
+  /** Moneda știută din căutare; se folosește dacă providerul nu o spune. */
+  currency?: string | null;
+}
+
+/** Istoricul zilnic al unui simbol pe perioada aleasă (doar din memorie, nu se salvează în baza de date). */
+export interface SymbolHistory {
+  symbol: string;
+  currency: string | null;
+  /** Prețurile de închidere, de la ultima zi dinaintea perioadei (baza variației) până azi. */
+  points: { date: string; close: number }[];
+  /** Ultimul preț cunoscut (null = fără date). */
+  last: number | null;
+  /** Variația pe perioadă, ca fracție (0,12 = +12%). */
+  change: number | null;
+  /** Variația de azi față de închiderea precedentă (null la „ALL”, care are puncte săptămânale). */
+  dayChange: number | null;
+  /** Punctele sunt săptămânale (perioada „ALL”), nu zilnice. */
+  weekly: boolean;
+  /** Cursul monedei simbolului față de moneda de bază (null = aceeași monedă sau curs necunoscut). */
+  fx: { currency: string; rate: number } | null;
 }
 
 export interface CsvImportResult {
@@ -1391,6 +1420,11 @@ export interface NewsFilter {
   portfolioOnly?: boolean;
   /** Ocolește cache-ul. */
   force?: boolean;
+  /**
+   * Tipul simbolului. Dat împreună cu `symbol`, permite orice simbol (ex. pagina unei companii găsite la căutare):
+   * pentru cele din afara portofoliului și a watchlist-ului, știrile stau doar în memorie, nu în baza de date.
+   */
+  type?: AssetType;
 }
 
 export interface NewsFeed {
@@ -1510,6 +1544,26 @@ export interface CompanyFinancials {
   sources: ResearchSource[];
   fetchedAt: string | null;
   stale: boolean;
+  offline: boolean;
+  error: string | null;
+}
+
+/** „Despre companie”: profilul unui simbol oarecare, de la provider (ținut doar în memorie). */
+export interface CompanyProfile {
+  symbol: string;
+  name: string | null;
+  /** La ETF-uri: categoria fondului. */
+  sector: string | null;
+  industry: string | null;
+  country: string | null;
+  /** Doar adrese https. */
+  website: string | null;
+  description: string | null;
+  employees: number | null;
+  exchange: string | null;
+  currency: string | null;
+  /** La ETF-uri: emitentul fondului. */
+  fundFamily: string | null;
   offline: boolean;
   error: string | null;
 }

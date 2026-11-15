@@ -13,7 +13,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { IPC_CALL, IPC_EVENT, type Api, type AppEvent, type IpcResult } from '@shared/api';
-import type { AlertEventView, RefreshResult, User } from '@shared/types';
+import { ASSET_TYPES, SYMBOL_HISTORY_RANGES, type AlertEventView, type RefreshResult, type User } from '@shared/types';
 import { addDays, todayIso } from '@shared/dates';
 import type { Db } from './db/database';
 import type { SecretBox } from './secrets';
@@ -45,7 +45,7 @@ import { getLogos } from './prices/store';
 import type { SymbolRef } from './prices/provider';
 import { looksLikeZip } from './xlsx';
 import { getNews } from './services/news';
-import { earningsSnapshots, getEarningsCalendar, getFinancials, latestReportDates, upcomingReports } from './services/financials';
+import { earningsSnapshots, getCompanyProfile, getEarningsCalendar, getFinancials, latestReportDates, upcomingReports } from './services/financials';
 import { researchSymbols } from './services/research';
 import { createResearchSources } from './research/sources';
 import type { BackupOptions } from './services/backupCore';
@@ -579,7 +579,18 @@ export function createBackend(ctx: BackendContext): Backend {
       refresh: async () => refreshPrices(true),
       status: async () => prices.status(uid()),
       search: async (query) => prices.search(uid(), String(query ?? '')),
-      lookup: async (symbol, type) => prices.lookup(uid(), String(symbol ?? ''), type)
+      lookup: async (symbol, type) => prices.lookup(uid(), String(symbol ?? ''), type),
+      symbolHistory: async (ref, range, base) =>
+        prices.symbolHistory(
+          uid(),
+          {
+            symbol: String(ref?.symbol ?? ''),
+            type: ASSET_TYPES.includes(ref?.type) ? ref.type : 'stock',
+            currency: typeof ref?.currency === 'string' && /^[A-Za-z]{3,4}$/.test(ref.currency) ? ref.currency : null
+          },
+          SYMBOL_HISTORY_RANGES.includes(range) ? range : '6M',
+          typeof base === 'string' && /^[A-Za-z]{3}$/.test(base) ? base : null
+        )
     },
     imports: {
       async open(options) {
@@ -721,6 +732,10 @@ export function createBackend(ctx: BackendContext): Backend {
       async calendar(filter) {
         const userId = uid();
         return getEarningsCalendar(db, userId, filter ?? {}, createResearchSources(db, secrets, userId));
+      },
+      async profile(symbol, type, force) {
+        const userId = uid();
+        return getCompanyProfile(userId, String(symbol ?? ''), ASSET_TYPES.includes(type) ? type : 'stock', createResearchSources(db, secrets, userId), { force: !!force });
       }
     }
   };

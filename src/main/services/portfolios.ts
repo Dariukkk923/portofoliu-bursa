@@ -1,12 +1,15 @@
 /**
  * Portofoliile utilizatorului: fiecare are tranzacțiile, cash-ul și randamentul
- * lui, plus nume, culoare, iconiță, monedă de bază și indice de referință proprii.
+ * lui, plus nume, culoare, iconiță și indice de referință proprii.
+ *
+ * Moneda de bază este una singură pentru tot contul: cea din setări. Coloana
+ * `portfolios.base_currency` se ține la fel ca setarea (pentru versiunile mai vechi
+ * ale aplicației și pentru datele sincronizate), dar calculele nu o folosesc.
  *
  * Fiecare utilizator are cel puțin un portofoliu („Principal”, creat automat).
- * Vederea „Toate portofoliile” combină portofoliile active (nearhivate), cu
- * totalurile în moneda de bază din setări.
+ * Vederea „Toate portofoliile” combină portofoliile active (nearhivate).
  */
-import { BASE_CURRENCIES, PORTFOLIO_COLORS, PORTFOLIO_ICONS, type Portfolio, type PortfolioInput } from '@shared/types';
+import { PORTFOLIO_COLORS, PORTFOLIO_ICONS, type Portfolio, type PortfolioInput } from '@shared/types';
 import type { LedgerTx } from '@shared/calc';
 import type { Db } from '../db/database';
 import { assert, rowToPortfolio } from './common';
@@ -31,6 +34,12 @@ function cleanBenchmark(value: unknown): string | null {
 function baseCurrencyOf(db: Db, userId: number): string {
   const r = db.prepare('SELECT base_currency FROM settings WHERE user_id = ?').get(userId) as { base_currency: string } | undefined;
   return r?.base_currency ?? 'RON';
+}
+
+/** Aduce moneda tuturor portofoliilor utilizatorului la cea din setări. */
+export function alignPortfolioCurrencies(db: Db, userId: number): void {
+  const currency = baseCurrencyOf(db, userId);
+  db.prepare('UPDATE portfolios SET base_currency = ? WHERE user_id = ? AND base_currency <> ?').run(currency, userId, currency);
 }
 
 export function listPortfolios(db: Db, userId: number): Portfolio[] {
@@ -96,8 +105,7 @@ function clean(db: Db, userId: number, input: PortfolioInput, current?: Portfoli
   assert(PORTFOLIO_COLORS.includes(color), 'Culoare necunoscută.');
   const icon = input.icon ?? current?.icon ?? PORTFOLIO_ICONS[0];
   assert(PORTFOLIO_ICONS.includes(icon), 'Iconiță necunoscută.');
-  const baseCurrency = input.baseCurrency ?? current?.baseCurrency ?? baseCurrencyOf(db, userId);
-  assert((BASE_CURRENCIES as readonly string[]).includes(baseCurrency), 'Monedă de bază necunoscută.');
+  const baseCurrency = baseCurrencyOf(db, userId); // moneda se alege doar din Setări, pentru toate portofoliile
   const benchmark = input.benchmark === undefined ? (current?.benchmark ?? null) : cleanBenchmark(input.benchmark);
   return { name, color, icon, baseCurrency, benchmark };
 }
@@ -191,8 +199,8 @@ export interface PortfolioScopeInfo {
 }
 
 /**
- * Un portofoliu anume (inclusiv arhivat, ca să poată fi consultat), în moneda lui de bază,
- * sau toate portofoliile active, în moneda de bază din setări.
+ * Un portofoliu anume (inclusiv arhivat, ca să poată fi consultat) sau toate portofoliile active,
+ * mereu în moneda de bază din setări (afară de cazul în care apelantul cere altă monedă).
  */
 export function resolveScope(db: Db, userId: number, portfolioId?: number | null, baseOverride?: string): PortfolioScopeInfo {
   const all = listPortfolios(db, userId);
@@ -207,7 +215,7 @@ export function resolveScope(db: Db, userId: number, portfolioId?: number | null
     single,
     ids,
     byId,
-    baseCurrency: baseOverride ?? single?.baseCurrency ?? baseCurrencyOf(db, userId),
+    baseCurrency: baseOverride ?? baseCurrencyOf(db, userId),
     includes: (t) => t.portfolioId == null || ids.has(t.portfolioId)
   };
 }

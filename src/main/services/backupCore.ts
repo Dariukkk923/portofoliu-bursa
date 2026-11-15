@@ -15,6 +15,7 @@
 import { LATEST_SCHEMA_VERSION } from '../db/migrations';
 import { migrate, type Db } from '../db/database';
 import { AppError, assert } from './common';
+import { alignPortfolioCurrencies } from './portfolios';
 
 const APP_MARKER = 'portofoliu-bursa';
 /** Tabelele cu datele utilizatorului, în ordinea în care pot fi inserate (respectă cheile străine). */
@@ -348,6 +349,8 @@ export function restoreFrom(
           userId
         );
       }
+      // Moneda de bază este aceeași pentru toate portofoliile (backup-urile vechi puteau avea monede diferite).
+      alignPortfolioCurrencies(db, userId);
       counts.brokers = brokerIds.size;
       counts.assets = assetIds.size;
     })();

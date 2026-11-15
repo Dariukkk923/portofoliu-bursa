@@ -7,9 +7,12 @@
  * interfeței ca data URI, ca să nu fie nevoie să deschidem politica de securitate a paginii.
  */
 import { createHash } from 'node:crypto';
-import type { NewsFeed, NewsFilter, NewsItem, ResearchSource } from '@shared/types';
+import { ASSET_TYPES, type AssetType, type NewsFeed, type NewsFilter, type NewsItem, type ResearchSource } from '@shared/types';
 import type { Db } from '../db/database';
 import { isNetworkError } from '../prices/provider';
+import { MemoCache } from '../prices/symbolHistory';
+import { normalizeSymbol } from './assets';
+import { assert } from './common';
 import { newsId, titleKey, urlKey, type RawNews } from '../research/parsers';
 import type { ResearchSources } from '../research/sources';
 import { cacheGet, cachePut, isFresh, pruneThumbs } from './researchCache';
@@ -31,6 +34,11 @@ interface ThumbEntry {
 const thumbKey = (url: string): string => createHash('sha1').update(url).digest('hex').slice(0, 24);
 
 export async function getNews(db: Db, userId: number, filter: NewsFilter, sources: ResearchSources, now: number = Date.now()): Promise<NewsFeed> {
+  // Un simbol oarecare (cu tipul dat), din afara portofoliului și a watchlist-ului: doar în memorie.
+  if (filter?.symbol && filter.type && ASSET_TYPES.includes(filter.type)) {
+    const symbol = normalizeSymbol(filter.symbol);
+    if (!researchSymbols(db, userId).some((s) => s.symbol === symbol)) return transientNews(userId, symbol, filter.type, sources, !!filter.force, now);
+  }
   const picked = pickSymbols(db, userId, filter ?? {});
   const chosen = [...picked].sort((a, b) => Number(b.held) - Number(a.held)).slice(0, MAX_SYMBOLS);
   const single = !!filter?.symbol;
@@ -132,4 +140,63 @@ async function loadThumbnails(db: Db, userId: number, urls: (string | null)[], s
   }
   pruneThumbs(db, userId, THUMB_KEEP_MS, now);
   return out;
+}
+
+/* ------------------------------------------------- simbol oarecare (doar în memorie) */
+
+/** Știrile și imaginile simbolurilor din afara portofoliului și a watchlist-ului: în memorie, nu în baza de date. */
+const transientFeeds = new MemoCache<{ raws: RawNews[]; fetchedAt: string }>(NEWS_TTL_MS, 30);
+const transientThumbs = new MemoCache<string>(THUMB_RETRY_MS, 300, true);
+const TRANSIENT_ITEMS = 20;
+
+async function transientNews(userId: number, symbol: string, type: AssetType, sources: ResearchSources, force: boolean, now: number): Promise<NewsFeed> {
+  assert(/^[A-Z0-9.\-=^_/]{1,24}$/.test(symbol), 'Simbolul nu este valid.');
+  const base: NewsFeed = { items: [], fetchedAt: null, stale: false, offline: false, error: null, symbolCount: 1 };
+  if (type === 'bond') return base;
+  const key = `${userId}:${symbol}`;
+  if (force) transientFeeds.delete(key);
+  let failure: unknown = null;
+  const feed = await transientFeeds.get(key, async () => {
+    try {
+      return { raws: await sources.news(symbol, type, { extra: true }), fetchedAt: new Date(now).toISOString() };
+    } catch (err) {
+      failure = err;
+      return null;
+    }
+  });
+  if (!feed) {
+    const offline = failure !== null && isNetworkError(failure);
+    return { ...base, offline, error: offline ? 'Fără conexiune la internet.' : 'Nu am putut încărca știrile. Încearcă din nou.' };
+  }
+
+  // Dublurile (aceeași adresă sau același titlu) se elimină, ca la știrile din portofoliu.
+  const seen = new Set<string>();
+  const list: RawNews[] = [];
+  for (const raw of feed.raws.slice().sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))) {
+    const keys = [urlKey(raw.url), titleKey(raw.title)].filter(Boolean);
+    if (keys.some((k) => seen.has(k))) continue;
+    keys.forEach((k) => seen.add(k));
+    list.push(raw);
+    if (list.length >= TRANSIENT_ITEMS) break;
+  }
+  const thumbs = await mapLimit(list, 4, (raw) =>
+    raw.thumbUrl
+      ? transientThumbs.get(raw.thumbUrl, async () => {
+          const img = await sources.thumbnail(raw.thumbUrl!).catch(() => null);
+          return img ? `data:${img.mime};base64,${Buffer.from(img.data).toString('base64')}` : null;
+        })
+      : Promise.resolve(null)
+  );
+  const items: NewsItem[] = list.map((raw, i) => ({
+    id: newsId(raw.url),
+    title: raw.title,
+    source: raw.source,
+    url: raw.url,
+    publishedAt: raw.publishedAt,
+    summary: raw.summary,
+    thumbnail: thumbs[i],
+    symbols: [symbol],
+    providers: [raw.provider]
+  }));
+  return { ...base, items, fetchedAt: feed.fetchedAt };
 }

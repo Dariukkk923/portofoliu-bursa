@@ -56,6 +56,9 @@ import type {
   Settings,
   SettingsUpdate,
   SymbolQuote,
+  SymbolHistory,
+  SymbolHistoryRange,
+  SymbolHistoryRef,
   ProjectionInputs,
   SymbolSearchResult,
   TaxReport,
@@ -69,6 +72,7 @@ import type {
   WatchlistItemUpdate,
   WatchlistItemView,
   CompanyFinancials,
+  CompanyProfile,
   EarningsCalendar,
   NewsFeed,
   NewsFilter,
@@ -210,6 +214,12 @@ export interface Api {
     status(): Promise<PriceStatus>;
     search(query: string): Promise<SymbolSearchResult[]>;
     lookup(symbol: string, type: AssetType): Promise<SymbolQuote | null>;
+    /**
+     * Graficul de previzualizare al unui simbol oarecare (căutare, watchlist, cumpărare): istoricul pe
+     * perioadă, ultimul preț și variația. Ținut doar în memorie (10 minute); nu aruncă erori — fără date, `points` e gol.
+     * `base` = moneda în care se arată „1 cotație = X” (implicit moneda de bază din setări).
+     */
+    symbolHistory(ref: SymbolHistoryRef, range: SymbolHistoryRange, base?: string | null): Promise<SymbolHistory>;
   };
   imports: {
     /**
@@ -280,6 +290,8 @@ export interface Api {
     get(symbol: string, type: AssetType, force?: boolean): Promise<CompanyFinancials>;
     /** Când raportează fiecare companie din filtru. */
     calendar(filter: NewsFilter): Promise<EarningsCalendar>;
+    /** „Despre companie” pentru orice simbol (sector, industrie, țară, site, descriere); doar în memorie, fără excepții la eșec. */
+    profile(symbol: string, type: AssetType, force?: boolean): Promise<CompanyProfile>;
   };
 }
 

@@ -51,9 +51,9 @@ const BOND: AssetInput = {
 function seed(db: Db, userId: number): void {
   const xtb = createBroker(db, userId, { name: 'XTB', notes: 'Acțiuni SUA, ETF-uri, crypto' }).id;
   const tradeville = createBroker(db, userId, { name: 'Tradeville', notes: 'BVB și titluri de stat' }).id;
-  // Două portofolii: cel principal și unul separat pentru crypto (cu moneda de bază EUR).
+  // Două portofolii: cel principal și unul separat pentru crypto.
   const main = ensureDefaultPortfolio(db, userId).id;
-  const crypto = createPortfolio(db, userId, { name: 'Crypto', color: 'amber', icon: 'bitcoin', baseCurrency: 'EUR' }).id;
+  const crypto = createPortfolio(db, userId, { name: 'Crypto', color: 'amber', icon: 'bitcoin' }).id;
 
   const purchase = (asset: AssetInput, brokerId: number, date: string, quantity: number, price: number, fee = 0, portfolioId = main): void => {
     addPurchase(db, userId, { portfolioId, asset, brokerId, date, quantity, price, fee });

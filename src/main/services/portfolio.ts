@@ -609,7 +609,7 @@ export function comparePortfolios(db: Db, userId: number, today: string = todayI
         name: p.name,
         color: p.color,
         icon: p.icon,
-        baseCurrency: p.baseCurrency,
+        baseCurrency: base,
         value: o.totals.totalValue,
         cash: o.totals.cash,
         totalPnl: o.totals.totalPnl,

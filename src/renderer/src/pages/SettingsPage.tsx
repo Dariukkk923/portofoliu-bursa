@@ -182,7 +182,7 @@ export function SettingsPage() {
   return (
     <>
       <Card title="Calcul și afișare">
-        <Row label="Moneda de bază" hint="Totalurile portofoliului sunt convertite în această monedă, la cursul curent.">
+        <Row label="Moneda de bază" hint="Toate portofoliile sunt afișate în această monedă, la cursul curent.">
           <Segmented value={settings.baseCurrency} onChange={(v) => void updateSettings({ baseCurrency: v })} options={BASE_CURRENCIES.map((c) => ({ value: c, label: c }))} />
         </Row>
         <Row

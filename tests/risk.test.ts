@@ -215,7 +215,7 @@ describe('indicele de referință', () => {
     expect(perf.points[perf.points.length - 1].benchmark).toBeCloseTo(0.21, 10);
 
     // Un portofoliu cu indicele lui (BET prin ETF, în lei), care are date doar de la o dată ulterioară.
-    const ro = createPortfolio(db, user.id, { name: 'BVB', color: 'teal', icon: 'landmark', baseCurrency: 'RON', benchmark: 'TVBETETF.RO' });
+    const ro = createPortfolio(db, user.id, { name: 'BVB', color: 'teal', icon: 'landmark', benchmark: 'TVBETETF.RO' });
     addPurchase(db, user.id, { portfolioId: ro.id, asset: { type: 'stock', symbol: 'TLV.RO', currency: 'RON' }, brokerId: broker.id, date: start, quantity: 10, price: 30, fee: 0 });
     saveHistory(db, user.id, 'TVBETETF.RO', [{ date: addDays(today, -20), close: 50 }, { date: addDays(today, -1), close: 55 }], true, 'yahoo');
     const bvb = getPerformance(db, user.id, '3M', { portfolioId: ro.id }, today);

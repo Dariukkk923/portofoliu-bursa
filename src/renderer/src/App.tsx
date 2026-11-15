@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Spinner, cx } from './components/ui';
@@ -19,6 +19,8 @@ import { AlertsPage } from './pages/AlertsPage';
 import { SimulatorPage } from './pages/SimulatorPage';
 import { TaxReportPage } from './pages/TaxReportPage';
 import { NewsPage } from './pages/NewsPage';
+import { CompanyPage } from './pages/CompanyPage';
+import { OpenCompanyContext, type CompanyRef } from './components/SymbolPreview';
 import { resetLogos } from './lib/logos';
 import { SettingsPage } from './pages/SettingsPage';
 import { SyncConflictPrompt } from './components/sync';
@@ -60,6 +62,15 @@ function Shell() {
 /** Aplicația propriu-zisă, pentru utilizatorul autentificat. */
 function Workspace() {
   const [page, setPage] = useState<PageId>('dashboard');
+  // Pagina companiei: instrumentul arătat și pagina la care duce săgeata „Înapoi”.
+  const [company, setCompany] = useState<{ ref: CompanyRef; back: PageId } | null>(null);
+  const openCompany = useCallback(
+    (ref: CompanyRef) => {
+      setCompany((current) => ({ ref, back: page === 'company' ? (current?.back ?? 'dashboard') : page }));
+      setPage('company');
+    },
+    [page]
+  );
   const { importRequest } = useApp();
   // Butonul „Import Excel / CSV” din alte pagini duce la ecranul Import (care deschide alegerea fișierului).
   const seenImport = useRef(importRequest);
@@ -72,25 +83,28 @@ function Workspace() {
     }
   }, [importRequest]);
   return (
-    <Layout page={page} onNavigate={setPage}>
-      {page === 'dashboard' && <DashboardPage onNavigate={setPage} />}
-      {page === 'positions' && <PositionsPage />}
-      {page === 'transactions' && <TransactionsPage />}
-      {page === 'watchlist' && <WatchlistPage />}
-      {page === 'risk' && <RiskPage />}
-      {page === 'dividends' && <DividendsPage />}
-      {page === 'journal' && <JournalPage />}
-      {page === 'goals' && <GoalsPage />}
-      {page === 'alerts' && <AlertsPage />}
-      {page === 'simulator' && <SimulatorPage />}
-      {page === 'tax' && <TaxReportPage />}
-      {page === 'news' && <NewsPage onNavigate={setPage} />}
-      {page === 'import' && <ImportPage />}
-      {page === 'portfolios' && <PortfoliosPage onOpen={() => setPage('dashboard')} />}
-      {page === 'brokers' && <BrokersPage />}
-      {page === 'settings' && <SettingsPage />}
-      <SyncConflictPrompt />
-    </Layout>
+    <OpenCompanyContext.Provider value={openCompany}>
+      <Layout page={page} onNavigate={setPage}>
+        {page === 'dashboard' && <DashboardPage onNavigate={setPage} />}
+        {page === 'positions' && <PositionsPage />}
+        {page === 'transactions' && <TransactionsPage />}
+        {page === 'watchlist' && <WatchlistPage />}
+        {page === 'risk' && <RiskPage />}
+        {page === 'dividends' && <DividendsPage />}
+        {page === 'journal' && <JournalPage />}
+        {page === 'goals' && <GoalsPage />}
+        {page === 'alerts' && <AlertsPage />}
+        {page === 'simulator' && <SimulatorPage />}
+        {page === 'tax' && <TaxReportPage />}
+        {page === 'news' && <NewsPage onNavigate={setPage} />}
+        {page === 'import' && <ImportPage />}
+        {page === 'portfolios' && <PortfoliosPage onOpen={() => setPage('dashboard')} />}
+        {page === 'brokers' && <BrokersPage />}
+        {page === 'settings' && <SettingsPage />}
+        {page === 'company' && company && <CompanyPage key={`${company.ref.type}:${company.ref.symbol}`} company={company.ref} onBack={() => setPage(company.back)} />}
+        <SyncConflictPrompt />
+      </Layout>
+    </OpenCompanyContext.Provider>
   );
 }
 

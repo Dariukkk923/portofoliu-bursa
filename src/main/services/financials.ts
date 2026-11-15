@@ -11,6 +11,7 @@ import type { EarningsSnap } from '@shared/alerts';
 import type {
   AssetType,
   CompanyFinancials,
+  CompanyProfile,
   EarningsCalendar,
   EarningsCalendarEntry,
   LatestReportDate,
@@ -24,6 +25,7 @@ import type {
 import { todayIso } from '@shared/dates';
 import type { Db } from '../db/database';
 import { isNetworkError } from '../prices/provider';
+import { MemoCache } from '../prices/symbolHistory';
 import { changePct, emptySet, reportLinks, surprise, yearAgo, type CalendarData, type FinancialsData } from '../research/parsers';
 import type { ResearchSources } from '../research/sources';
 import { cacheGet, cachePut, isFresh } from './researchCache';
@@ -120,11 +122,18 @@ export function buildFinancials(symbol: string, name: string, type: AssetType, d
   };
 }
 
-/** Tipul și numele simbolului: din portofoliu/watchlist, altfel cele primite de la interfață. */
-function identify(db: Db, userId: number, symbol: string, type: AssetType): ResearchSymbol {
+/** Tipul și numele simbolului: din portofoliu/watchlist, altfel cele primite de la interfață (`known: false`). */
+function identify(db: Db, userId: number, symbol: string, type: AssetType): ResearchSymbol & { known: boolean } {
   const known = researchSymbols(db, userId).find((s) => s.symbol === symbol);
-  return known ?? { symbol, name: '', type, held: false };
+  return known ? { ...known, known: true } : { symbol, name: '', type, held: false, known: false };
 }
+
+/**
+ * Raportările și profilul simbolurilor din afara portofoliului și a watchlist-ului (pagina unei companii
+ * găsite la căutare): doar în memorie, ca baza de date (și deci sincronizarea contului) să nu se schimbe.
+ */
+const transientFinancials = new MemoCache<CompanyFinancials>(FIN_TTL_MS, 30);
+const transientProfiles = new MemoCache<CompanyProfile>(FIN_TTL_MS, 30);
 
 export async function getFinancials(
   db: Db,
@@ -139,6 +148,27 @@ export async function getFinancials(
   const now = opts.now ?? Date.now();
   const who = identify(db, userId, symbol, type);
   if (who.type !== 'stock') return blank(symbol, who.name, { supported: false, links: reportLinks(symbol, who.type, null, null), reason: UNSUPPORTED_REASON });
+
+  if (!who.known) {
+    const key = `${userId}:${symbol}`;
+    if (opts.force) transientFinancials.delete(key);
+    let failure: unknown = null;
+    const result = await transientFinancials.get(key, async () => {
+      try {
+        const data = await sources.financials(symbol, who.type);
+        const fetchedAt = new Date(now).toISOString();
+        return data
+          ? buildFinancials(symbol, who.name, who.type, data, fetchedAt, fetchedAt.slice(0, 10))
+          : blank(symbol, who.name, { supported: false, fetchedAt, reason: 'Nu am găsit raportări financiare pentru acest simbol.' });
+      } catch (err) {
+        failure = err;
+        return null;
+      }
+    });
+    if (result) return result;
+    const offline = failure !== null && isNetworkError(failure);
+    return blank(symbol, who.name, { offline, error: offline ? 'Fără conexiune la internet.' : 'Nu am putut încărca raportările. Încearcă din nou.' });
+  }
 
   const cached = cacheGet<CompanyFinancials>(db, userId, 'fin', symbol);
   if (isFresh(cached, FIN_TTL_MS, now) && !opts.force) return { ...cached!.data, name: who.name || cached!.data.name, fetchedAt: cached!.fetchedAt };
@@ -155,6 +185,46 @@ export async function getFinancials(
     if (cached) return { ...cached.data, name: who.name || cached.data.name, fetchedAt: cached.fetchedAt, stale: true, offline };
     return blank(symbol, who.name, { offline, error: offline ? 'Fără conexiune la internet.' : 'Nu am putut încărca raportările. Încearcă din nou.' });
   }
+}
+
+/**
+ * „Despre companie”: sectorul, industria, țara, site-ul și descrierea, de la provider. Orice simbol;
+ * ținut doar în memorie (12 ore). Fără date: câmpuri goale; fără internet: `offline`, fără excepție.
+ */
+export async function getCompanyProfile(userId: number, rawSymbol: string, type: AssetType, sources: ResearchSources, opts: { force?: boolean } = {}): Promise<CompanyProfile> {
+  const symbol = normalizeSymbol(rawSymbol);
+  assert(/^[A-Z0-9.\-=^_/]{1,24}$/.test(symbol), 'Simbolul nu este valid.');
+  const empty: CompanyProfile = {
+    symbol,
+    name: null,
+    sector: null,
+    industry: null,
+    country: null,
+    website: null,
+    description: null,
+    employees: null,
+    exchange: null,
+    currency: null,
+    fundFamily: null,
+    offline: false,
+    error: null
+  };
+  if (type === 'bond' || !sources.profile) return empty;
+  const key = `${userId}:${type}:${symbol}`;
+  if (opts.force) transientProfiles.delete(key);
+  let failure: unknown = null;
+  const result = await transientProfiles.get(key, async () => {
+    try {
+      const data = await sources.profile!(symbol, type);
+      return { ...empty, ...(data ?? {}) };
+    } catch (err) {
+      failure = err;
+      return null;
+    }
+  });
+  if (result) return result;
+  const offline = failure !== null && isNetworkError(failure);
+  return { ...empty, offline, error: offline ? 'Fără conexiune la internet.' : 'Nu am putut încărca informațiile despre companie. Încearcă din nou.' };
 }
 
 /* --------------------------------------------------------------- calendar */

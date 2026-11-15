@@ -423,3 +423,46 @@ export function yearAgo<T extends { end: string }>(list: T[], end: string): T | 
 }
 
 export const changePct = (now: number | null, before: number | null): number | null => (now === null || before === null || before === 0 ? null : (now - before) / Math.abs(before));
+
+/* ------------------------------------------------------ Yahoo: profilul companiei */
+
+/** Profilul din fișa companiei (pagina „Despre companie”): fără câmpuri, `null`. */
+export interface ProfileData {
+  name: string | null;
+  sector: string | null;
+  industry: string | null;
+  country: string | null;
+  website: string | null;
+  description: string | null;
+  employees: number | null;
+  exchange: string | null;
+  currency: string | null;
+  fundFamily: string | null;
+}
+
+const text = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+
+/**
+ * quoteSummary cu modulele assetProfile / summaryProfile / fundProfile / price. La ETF-uri, „sectorul”
+ * este categoria fondului; la crypto, descrierea vine din summaryProfile. Null dacă nu există nimic util.
+ */
+export function parseYahooProfile(qs: Any): ProfileData | null {
+  const profile = qs?.assetProfile ?? qs?.summaryProfile ?? {};
+  const summary = qs?.summaryProfile ?? {};
+  const price = qs?.price ?? {};
+  const employees = num(profile.fullTimeEmployees);
+  const currency = text(price.currency, 8);
+  const out: ProfileData = {
+    name: text(price.longName ?? price.shortName, 200),
+    sector: text(qs?.fundProfile?.categoryName, 80) ?? text(profile.sector, 80),
+    industry: text(profile.industry, 80),
+    country: text(profile.country, 60),
+    website: httpsUrl(profile.website ?? summary.website),
+    description: text(profile.longBusinessSummary ?? summary.longBusinessSummary ?? summary.description, 4000),
+    employees: employees !== null && employees > 0 ? Math.round(employees) : null,
+    exchange: text(price.exchangeName, 60),
+    currency: currency === 'GBp' || currency === 'GBX' ? 'GBP' : currency ? currency.toUpperCase() : null,
+    fundFamily: text(qs?.fundProfile?.family, 120)
+  };
+  return Object.values(out).some((v) => v !== null) ? out : null;
+}

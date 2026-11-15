@@ -461,7 +461,7 @@ describe('importul din extras', () => {
   });
 
   it('tranzacțiile intră în portofoliul ales', async () => {
-    const pension = createPortfolio(db, alice.id, { name: 'Pensie', color: 'teal', icon: 'piggy-bank', baseCurrency: 'RON', benchmark: '^GSPC' });
+    const pension = createPortfolio(db, alice.id, { name: 'Pensie', color: 'teal', icon: 'piggy-bank', benchmark: '^GSPC' });
     const { preview, apply } = await open(alice, sample(T212), 'trading212.csv', { portfolioId: pension.id });
     expect(preview!.portfolioId).toBe(pension.id);
     expect(apply()).toMatchObject({ imported: 7, portfolioName: 'Pensie' });

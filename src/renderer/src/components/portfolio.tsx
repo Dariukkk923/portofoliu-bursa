@@ -22,7 +22,6 @@ import {
   type LucideIcon
 } from 'lucide-react';
 import {
-  BASE_CURRENCIES,
   PORTFOLIO_COLORS,
   PORTFOLIO_ICONS,
   type MovePreview,
@@ -113,7 +112,7 @@ export function PortfolioTag({ portfolioId }: { portfolioId: number | null }) {
 
 /** Selectorul de portofoliu din bara de sus: un portofoliu sau „Toate portofoliile”. */
 export function PortfolioSwitcher({ onManage }: { onManage: () => void }) {
-  const { activePortfolios, scope, currentPortfolio, setScope } = useApp();
+  const { activePortfolios, scope, currentPortfolio, setScope, settings } = useApp();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -165,7 +164,7 @@ export function PortfolioSwitcher({ onManage }: { onManage: () => void }) {
             <button key={p.id} type="button" role="menuitemradio" aria-checked={scope === p.id} className={item} onClick={() => choose(p.id)}>
               <PortfolioIcon color={p.color} icon={p.icon} size="sm" />
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              <span className="text-xs text-ink-3">{p.baseCurrency}</span>
+              <span className="text-xs text-ink-3">{settings?.baseCurrency ?? p.baseCurrency}</span>
               {scope === p.id && <Check className="size-4 text-accent" aria-hidden />}
             </button>
           ))}
@@ -214,14 +213,13 @@ export function PortfolioField({ value, onChange }: { value: number | null; onCh
   );
 }
 
-/** Crearea sau editarea unui portofoliu: nume, culoare, iconiță, monedă de bază, indice de referință. */
+/** Crearea sau editarea unui portofoliu: nume, culoare, iconiță, indice de referință (moneda vine din Setări). */
 export function PortfolioForm({ initial, onClose, onSaved }: { initial: Portfolio | null; onClose: () => void; onSaved: (p: Portfolio) => void }) {
   const { settings } = useApp();
   const [form, setForm] = useState<Required<PortfolioInput>>({
     name: initial?.name ?? '',
     color: initial?.color ?? 'blue',
     icon: initial?.icon ?? 'wallet',
-    baseCurrency: initial?.baseCurrency ?? settings?.baseCurrency ?? 'RON',
     benchmark: initial?.benchmark ?? null
   });
   const [error, setError] = useState<string | null>(null);
@@ -294,15 +292,11 @@ export function PortfolioForm({ initial, onClose, onSaved }: { initial: Portfoli
           </div>
         </fieldset>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Moneda de bază" hint="Moneda în care vezi totalurile acestui portofoliu.">
-            <Select value={form.baseCurrency} onChange={(e) => setForm({ ...form, baseCurrency: e.target.value })}>
-              {BASE_CURRENCIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <div>
+            <span className="mb-1 block text-body font-medium text-ink-2">Moneda</span>
+            <p className="flex h-9.5 items-center text-sm font-medium text-ink">{settings?.baseCurrency ?? 'RON'}</p>
+            <p className="mt-1 text-xs text-ink-3">Se schimbă din Setări, pentru toate portofoliile.</p>
+          </div>
           <Field label="Indice de referință" hint="Cu el se compară randamentul.">
             <Select value={form.benchmark ?? ''} onChange={(e) => setForm({ ...form, benchmark: e.target.value || null })}>
               <option value="">Implicit (din Setări)</option>

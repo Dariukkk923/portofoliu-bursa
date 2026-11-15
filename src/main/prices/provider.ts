@@ -32,6 +32,13 @@ export interface HistoryResult {
   points: { date: string; close: number }[];
   /** True dacă prețurile sunt ajustate la split-urile ulterioare. */
   splitAdjusted: boolean;
+  /** Moneda prețurilor, dacă providerul o spune (în unitatea principală: „GBp” -> „GBP”). */
+  currency?: string | null;
+}
+
+/** Opțiuni pentru istoric: `weekly` = un punct pe săptămână (pentru perioade lungi), dacă providerul poate; altfel zilnic. */
+export interface HistoryOptions {
+  weekly?: boolean;
 }
 
 export interface AssetProfile {
@@ -71,7 +78,7 @@ export interface PriceProvider {
   getDividends?(ref: SymbolRef, from: string): Promise<ProviderDividend[] | null>;
   /** Opțional: mai multe cotații într-o singură cerere. Simbolurile negăsite lipsesc din rezultat. */
   getQuotes?(refs: SymbolRef[]): Promise<Map<string, Quote>>;
-  getHistory(ref: SymbolRef, from: string, to: string): Promise<HistoryResult>;
+  getHistory(ref: SymbolRef, from: string, to: string, opts?: HistoryOptions): Promise<HistoryResult>;
   search(query: string): Promise<SymbolSearchResult[]>;
 }
 

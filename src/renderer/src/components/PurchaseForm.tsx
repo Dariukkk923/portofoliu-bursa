@@ -17,6 +17,7 @@ import { Badge, Button, Field, Input, Modal, Notice, Segmented, Select, Spinner,
 import { PortfolioField } from './portfolio';
 import { JournalSection, draftError, draftIsEmpty, draftToInput, emptyDraft, type JournalDraft } from './journal';
 import { TickerLogo } from './TickerLogo';
+import { SymbolPreview, type CompanyRef } from './SymbolPreview';
 
 /** Instrumentul ales dinainte (ex.: din watchlist). */
 export interface PurchasePreset {
@@ -83,6 +84,7 @@ export function PurchaseForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const searchSeq = useRef(0);
+  const [chosen, setChosen] = useState<CompanyRef | null>(preset ? { symbol: preset.symbol, type: preset.type, name: preset.name, currency: preset.currency } : null);
 
   /** Activul există deja în portofoliu? Atunci tipul și moneda lui sunt fixe. */
   const existing = useMemo(() => assets.find((a) => a.symbol === symbol.trim().toUpperCase()) ?? null, [assets, symbol]);
@@ -138,8 +140,19 @@ export function PurchaseForm({
     setName(r.name);
     if (r.type) setType(r.type);
     setShowResults(false);
+    setChosen({ symbol: r.symbol, type: r.type ?? type, name: r.name, currency: r.currency, exchange: r.exchange });
     lookup(r.symbol, r.type ?? type);
   };
+
+  // Graficul prețului pentru simbolul ales (din căutare, din watchlist sau unul deja deținut).
+  const previewItem: CompanyRef | null =
+    type === 'bond'
+      ? null
+      : chosen && chosen.symbol.toUpperCase() === symbol.trim().toUpperCase()
+        ? { ...chosen, type }
+        : existing
+          ? { symbol: existing.symbol, type: existing.type, name: existing.name, currency: existing.currency }
+          : null;
 
   const qty = parseNumberLoose(quantity);
   const unitPrice = parseNumberLoose(price);
@@ -285,6 +298,12 @@ export function PurchaseForm({
             <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} disabled={!!existing} />
           </Field>
         </div>
+
+        {previewItem && (
+          <div className="rounded-xl border border-line bg-surface-2/40 p-4 max-md:p-3">
+            <SymbolPreview key={`${previewItem.type}:${previewItem.symbol}`} item={previewItem} compact beforeInfo={onClose} />
+          </div>
+        )}
 
         {existing && (
           <Notice tone="accent">

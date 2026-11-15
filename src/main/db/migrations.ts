@@ -563,6 +563,16 @@ export const MIGRATIONS: Migration[] = [
         remote_device TEXT
       );
     `
+  },
+  {
+    version: 15,
+    name: 'aceeași monedă de bază pentru toate portofoliile',
+    sql: `
+      -- Moneda de bază se alege acum doar din Setări, pentru tot contul: portofoliile o preiau pe cea din setări.
+      UPDATE portfolios
+         SET base_currency = (SELECT s.base_currency FROM settings s WHERE s.user_id = portfolios.user_id)
+       WHERE EXISTS (SELECT 1 FROM settings s WHERE s.user_id = portfolios.user_id AND s.base_currency <> portfolios.base_currency);
+    `
   }
 ];
 

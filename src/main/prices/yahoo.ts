@@ -12,6 +12,7 @@ import {
   ProviderError,
   toMajorUnits,
   type AssetProfile,
+  type HistoryOptions,
   type HistoryResult,
   type PriceProvider,
   type ProviderDividend,
@@ -135,8 +136,8 @@ export class YahooProvider implements PriceProvider {
     return points.length > 0 ? { points, splitAdjusted: true } : null;
   }
 
-  async getHistory(ref: SymbolRef, from: string, to: string): Promise<HistoryResult> {
-    const direct = await this.directHistory(ref, from, to).catch((err: unknown) => {
+  async getHistory(ref: SymbolRef, from: string, to: string, opts?: HistoryOptions): Promise<HistoryResult> {
+    const direct = await this.directHistory(ref, from, to, opts?.weekly ? '1wk' : '1d').catch((err: unknown) => {
       if (ref.type === 'fx' && err instanceof ProviderError && err.kind === 'notfound') return null;
       throw err;
     });
@@ -152,15 +153,15 @@ export class YahooProvider implements PriceProvider {
     }
   }
 
-  private async directHistory(ref: SymbolRef, from: string, to: string): Promise<HistoryResult> {
+  private async directHistory(ref: SymbolRef, from: string, to: string, interval: '1d' | '1wk' = '1d'): Promise<HistoryResult> {
     try {
       // period2 este exclusiv, deci cerem o zi în plus.
-      const chart: Any = await this.yf().chart(ref.symbol, { period1: from, period2: addDays(to, 1), interval: '1d' });
+      const chart: Any = await this.yf().chart(ref.symbol, { period1: from, period2: addDays(to, 1), interval });
       const points = ((chart?.quotes ?? []) as Any[])
         .filter((r) => r?.date instanceof Date && typeof r.close === 'number' && r.close > 0)
         .map((r) => ({ date: (r.date as Date).toISOString().slice(0, 10), close: toMajorUnits(r.close as number, chart?.meta?.currency).price }));
       // „close” de la Yahoo este ajustat la split-uri (nu și la dividende).
-      return { points, splitAdjusted: true };
+      return { points, splitAdjusted: true, currency: toMajorUnits(1, chart?.meta?.currency).currency };
     } catch (err) {
       throw this.wrap(err);
     }

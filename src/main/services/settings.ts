@@ -14,6 +14,7 @@ import { BENCHMARKS, DEFAULT_BENCHMARK } from '@shared/benchmarks';
 import type { Db } from '../db/database';
 import type { SecretBox } from '../secrets';
 import { assert } from './common';
+import { alignPortfolioCurrencies } from './portfolios';
 
 interface SettingsRow {
   base_currency: string;
@@ -137,6 +138,8 @@ export function updateSettings(db: Db, userId: number, patch: SettingsUpdate): S
     next.concentration_limit ?? 0.2,
     userId
   );
+  // Moneda de bază este aceeași pentru toate portofoliile.
+  if (patch.baseCurrency !== undefined) alignPortfolioCurrencies(db, userId);
   return getSettings(db, userId);
 }
 

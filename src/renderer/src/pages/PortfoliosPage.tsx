@@ -1,6 +1,6 @@
 /**
  * Ecranul „Portofolii”: gestionarea portofoliilor (creare, redenumire, culoare,
- * iconiță, monedă de bază, indice de referință, duplicare, arhivare, ștergere)
+ * iconiță, indice de referință, duplicare, arhivare, ștergere)
  * și comparația lor, unul lângă altul: valoare, profit, randament și risc.
  */
 import { useState } from 'react';
@@ -60,7 +60,7 @@ export function PortfoliosPage({ onOpen }: { onOpen: () => void }) {
                   {p.archived && <Badge>Arhivat</Badge>}
                 </p>
                 <p className="text-xs text-ink-3">
-                  {p.baseCurrency} · {p.transactionCount ?? 0} tranzacții · comparat cu {benchmarkName(p.benchmark)}
+                  {base} · {p.transactionCount ?? 0} tranzacții · comparat cu {benchmarkName(p.benchmark)}
                 </p>
               </div>
               <div className="flex items-center gap-1 max-md:basis-full max-md:justify-end">

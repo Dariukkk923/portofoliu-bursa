@@ -59,7 +59,9 @@ export type PageId =
   | 'import'
   | 'portfolios'
   | 'brokers'
-  | 'settings';
+  | 'settings'
+  /** Pagina unei companii (deschisă cu „Info”, nu din meniu). */
+  | 'company';
 
 interface NavLeaf {
   id: PageId;
@@ -152,11 +154,12 @@ const TITLES: Record<PageId, string> = {
   import: 'Import din extrasul brokerului',
   portfolios: 'Portofolii',
   brokers: 'Brokeri',
-  settings: 'Setări'
+  settings: 'Setări',
+  company: 'Companie'
 };
 
 /** Raportul fiscal își alege singur portofoliile (implicit toate, inclusiv cele arhivate): selectorul global nu se aplică. */
-const OWN_SCOPE_PAGES: PageId[] = ['tax', 'news'];
+const OWN_SCOPE_PAGES: PageId[] = ['tax', 'news', 'company'];
 
 /** Paginile pe care se aplică filtrul global (broker + tip de activ). */
 const FILTERED_PAGES: PageId[] = ['dashboard', 'positions', 'risk'];

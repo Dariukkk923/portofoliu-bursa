@@ -1,7 +1,7 @@
 /** Lista de știri (pagina Știri și fila „Știri” din detaliul unui activ): miniatură, titlu, sursă, oră, link către articol. */
 import { useRef, type ReactNode } from 'react';
 import { ExternalLink, Newspaper, RefreshCw } from 'lucide-react';
-import type { NewsItem } from '@shared/types';
+import type { AssetType, NewsItem } from '@shared/types';
 import { api, errorMessage } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
 import { dateTime } from '../lib/format';
@@ -41,14 +41,14 @@ function NewsCard({ item, showSymbols, onOpen }: { item: NewsItem; showSymbols: 
  * Știrile pentru filtrul dat. Cât timp se încarcă: schelet; la eroare: „Încearcă din nou”;
  * fără internet: știrile salvate, cu o avertizare.
  */
-export function NewsFeedView({ symbol, portfolioOnly, empty }: { symbol: string | null; portfolioOnly: boolean; empty?: ReactNode }) {
+export function NewsFeedView({ symbol, type, portfolioOnly, empty }: { symbol: string | null; /** Cu tipul dat, merge orice simbol (pagina companiei). */ type?: AssetType; portfolioOnly: boolean; empty?: ReactNode }) {
   const { notify } = useApp();
   const forceNext = useRef(false);
   const feed = useLoad(() => {
     const force = forceNext.current;
     forceNext.current = false;
-    return api.news.list({ symbol, portfolioOnly, force });
-  }, [symbol, portfolioOnly]);
+    return api.news.list({ symbol, portfolioOnly, force, ...(type ? { type } : {}) });
+  }, [symbol, type, portfolioOnly]);
   const refresh = (): void => {
     forceNext.current = true;
     feed.reload();

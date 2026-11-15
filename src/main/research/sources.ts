@@ -21,10 +21,12 @@ import {
   parsePolygonFinancials,
   parsePolygonNews,
   parseYahooNews,
+  parseYahooProfile,
   parseYahooStatements,
   parseYahooSummary,
   type CalendarData,
   type FinancialsData,
+  type ProfileData,
   type RawNews
 } from './parsers';
 
@@ -44,6 +46,8 @@ export interface ResearchSources {
   financials(symbol: string, type: AssetType): Promise<FinancialsData | null>;
   /** Doar data următoarei raportări și a ultimei publicate (cerere ușoară). */
   calendar(symbol: string, type: AssetType): Promise<CalendarData | null>;
+  /** Profilul companiei (sector, industrie, țară, site, descriere); null = nu există. Aruncă la erori de rețea. */
+  profile?(symbol: string, type: AssetType): Promise<ProfileData | null>;
 }
 
 const POLYGON = 'https://api.polygon.io';
@@ -145,6 +149,13 @@ export function createResearchSources(db: Db, secrets: SecretBox, userId: number
       }
       if (!parsed && !next) return null;
       return { next, lastReportedDate: parsed?.lastReportedDate ?? null, lastPeriodEnd: parsed?.lastPeriodEnd ?? null };
+    },
+
+    async profile(symbol, type) {
+      if (type === 'bond') return null;
+      const modules = type === 'etf' ? ['assetProfile', 'fundProfile', 'summaryProfile', 'price'] : type === 'crypto' ? ['summaryProfile', 'price'] : ['assetProfile', 'price'];
+      const qs = await soft<Any>(yf().quoteSummary(symbol, { modules }, { validateResult: false }));
+      return qs ? parseYahooProfile(qs) : null;
     },
 
     async financials(symbol, type) {

@@ -189,6 +189,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (patch: SettingsUpdate) => {
       try {
         setSettings(await api.settings.update(patch));
+        // Moneda de bază se schimbă și la portofolii: lista lor se reîncarcă, iar cifrele se recalculează.
+        if (patch.baseCurrency !== undefined) setPortfolios(await api.portfolios.list());
         bumpData();
       } catch (err) {
         notify('error', errorMessage(err));

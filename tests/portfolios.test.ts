@@ -1,6 +1,6 @@
 /**
  * Mai multe portofolii: migrarea datelor existente în „Principal”, evidența
- * separată pe portofoliu, totalurile combinate în monede diferite, mutarea
+ * separată pe portofoliu, moneda de bază din setări (aceeași pentru toate), mutarea
  * tranzacțiilor (cu recalcularea costului și a cash-ului) și backup-ul.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -26,6 +26,7 @@ import {
 import { moveTransactions, positionTransactionIds, previewMove } from '@main/services/portfolioMove';
 import { getSettings, updateSettings } from '@main/services/settings';
 import { createBackup, restoreBackup } from '@main/services/backup';
+import { ensureDemoAccount } from '@main/services/demo';
 import { saveQuote } from '@main/prices/store';
 import { buy, sell, tx } from './helpers';
 
@@ -71,6 +72,57 @@ describe('migrarea la mai multe portofolii', () => {
       { type: 'split', no_portfolio: 1, same_user: null }
     ]);
     old.close();
+  });
+
+  it('aduce portofoliile existente la moneda de bază din setări (versiunea 15)', () => {
+    const old = new Database(':memory:');
+    old.pragma('foreign_keys = ON');
+    for (const m of MIGRATIONS.filter((x) => x.version <= 14)) {
+      old.exec(m.sql);
+      m.after?.(old);
+    }
+    old.pragma('user_version = 14');
+    old.exec(`
+      INSERT INTO users (username, password_hash) VALUES ('ana', 'h'), ('dan', 'h');
+      INSERT INTO settings (user_id, base_currency) VALUES (1, 'EUR'), (2, 'RON');
+      INSERT INTO portfolios (user_id, name, base_currency) VALUES (1, 'Principal', 'RON'), (1, 'Crypto', 'EUR'), (2, 'Principal', 'RON'), (2, 'SUA', 'USD');
+    `);
+    migrate(old);
+    expect(schemaVersion(old)).toBe(LATEST_SCHEMA_VERSION);
+    expect(old.prepare('SELECT user_id, name, base_currency FROM portfolios ORDER BY id').all()).toEqual([
+      { user_id: 1, name: 'Principal', base_currency: 'EUR' },
+      { user_id: 1, name: 'Crypto', base_currency: 'EUR' },
+      { user_id: 2, name: 'Principal', base_currency: 'RON' },
+      { user_id: 2, name: 'SUA', base_currency: 'RON' }
+    ]);
+    old.close();
+  });
+});
+
+describe('contul nou și contul demo', () => {
+  it('„Principal” și portofoliile demo primesc moneda din setări', async () => {
+    const db = openDatabase(':memory:');
+    try {
+      const user = await register(db, { username: 'nou', password: 'parola-nou-123' });
+      expect(getSettings(db, user.id).baseCurrency).toBe('RON');
+      expect(listPortfolios(db, user.id).map((p) => [p.name, p.baseCurrency])).toEqual([['Principal', 'RON']]);
+
+      const demo = await ensureDemoAccount(db);
+      expect(listPortfolios(db, demo.id).map((p) => [p.name, p.baseCurrency])).toEqual([
+        ['Principal', 'RON'],
+        ['Crypto', 'RON']
+      ]);
+      const crypto = listPortfolios(db, demo.id).find((p) => p.name === 'Crypto')!;
+      const today = '2025-06-30';
+      expect(getOverview(db, demo.id, {}, today).totals.baseCurrency).toBe('RON');
+      expect(getOverview(db, demo.id, { portfolioId: crypto.id }, today).totals.baseCurrency).toBe('RON');
+      updateSettings(db, demo.id, { baseCurrency: 'EUR' });
+      const inEur = getOverview(db, demo.id, { portfolioId: crypto.id }, today);
+      expect(inEur.totals.baseCurrency).toBe('EUR');
+      expect(inEur.totals.holdingsValue).toBeGreaterThan(0);
+    } finally {
+      db.close();
+    }
   });
 });
 
@@ -154,10 +206,10 @@ describe('portofolii în aplicație', () => {
     expect(() => deletePortfolio(db, user.id, principal)).toThrow(/singurul portofoliu/);
   });
 
-  it('totalurile combinate adună portofolii cu monede de bază diferite, în moneda din setări', () => {
+  it('totalurile combinate adună portofoliile, în moneda din setări', () => {
     quotes();
     const xtb = createBroker(db, user.id, { name: 'XTB' });
-    const eu = createPortfolio(db, user.id, { name: 'Europa', baseCurrency: 'EUR' });
+    const eu = createPortfolio(db, user.id, { name: 'Europa' });
     addPurchase(db, user.id, { portfolioId: principal, asset: { type: 'stock', symbol: 'AAPL', currency: 'USD' }, brokerId: xtb.id, date: '2024-01-02', quantity: 2, price: 150, fee: 0 });
     addPurchase(db, user.id, { portfolioId: eu.id, asset: { type: 'etf', symbol: 'VWCE.DE', currency: 'EUR' }, brokerId: xtb.id, date: '2024-01-02', quantity: 10, price: 100, fee: 0 });
     // Același activ în două portofolii, cu costuri diferite.
@@ -166,7 +218,7 @@ describe('portofolii în aplicație', () => {
     const a = getOverview(db, user.id, { portfolioId: principal }, '2024-01-10');
     expect(a.totals).toMatchObject({ baseCurrency: 'RON', holdingsValue: 1800 }); // 2 × 200 USD × 4,5
     const b = getOverview(db, user.id, { portfolioId: eu.id }, '2024-01-10');
-    expect(b.totals).toMatchObject({ baseCurrency: 'EUR', holdingsValue: 1280 }); // 10 × 110 + 200 × 0,9
+    expect(b.totals).toMatchObject({ baseCurrency: 'RON', holdingsValue: 6400 }); // 10 × 110 × 5 + 200 × 4,5
 
     const all = getOverview(db, user.id, {}, '2024-01-10');
     expect(all.totals.baseCurrency).toBe('RON');
@@ -184,6 +236,38 @@ describe('portofolii în aplicație', () => {
 
     const cmp = comparePortfolios(db, user.id, '2024-01-10');
     expect(cmp.map((c) => [c.name, c.value])).toEqual([['Principal', 1800]]);
+  });
+
+  it('moneda din Setări se aplică tuturor portofoliilor, inclusiv celor existente', () => {
+    quotes();
+    const xtb = createBroker(db, user.id, { name: 'XTB' });
+    const eu = createPortfolio(db, user.id, { name: 'Europa' });
+    expect(eu.baseCurrency).toBe('RON');
+    addPurchase(db, user.id, { portfolioId: principal, asset: { type: 'stock', symbol: 'AAPL', currency: 'USD' }, brokerId: xtb.id, date: '2024-01-02', quantity: 2, price: 150, fee: 0 });
+    addPurchase(db, user.id, { portfolioId: eu.id, asset: { type: 'etf', symbol: 'VWCE.DE', currency: 'EUR' }, brokerId: xtb.id, date: '2024-01-02', quantity: 10, price: 100, fee: 0 });
+    expect(getOverview(db, user.id, { portfolioId: principal }, '2024-01-10').totals.baseCurrency).toBe('RON');
+
+    updateSettings(db, user.id, { baseCurrency: 'EUR' });
+    // Un portofoliu anume și vederea combinată: totul în EUR.
+    expect(getOverview(db, user.id, { portfolioId: principal }, '2024-01-10').totals).toMatchObject({ baseCurrency: 'EUR', holdingsValue: 360 }); // 2 × 200 × 0,9
+    expect(getOverview(db, user.id, { portfolioId: eu.id }, '2024-01-10').totals).toMatchObject({ baseCurrency: 'EUR', holdingsValue: 1100 });
+    expect(getOverview(db, user.id, {}, '2024-01-10').totals).toMatchObject({ baseCurrency: 'EUR', holdingsValue: 1460 });
+    expect(getPerformance(db, user.id, 'ALL', { portfolioId: principal }, '2024-01-10').baseCurrency).toBe('EUR');
+    expect(comparePortfolios(db, user.id, '2024-01-10').map((c) => c.baseCurrency)).toEqual(['EUR', 'EUR']);
+    // Portofoliile existente au primit și ele moneda nouă, iar cele noi (și copiile) pornesc cu ea.
+    expect(listPortfolios(db, user.id).map((p) => p.baseCurrency)).toEqual(['EUR', 'EUR']);
+    expect(createPortfolio(db, user.id, { name: 'Nou' }).baseCurrency).toBe('EUR');
+    expect(duplicatePortfolio(db, user.id, principal).baseCurrency).toBe('EUR');
+
+    updateSettings(db, user.id, { baseCurrency: 'RON' });
+    expect(listPortfolios(db, user.id).every((p) => p.baseCurrency === 'RON')).toBe(true);
+    expect(getOverview(db, user.id, { portfolioId: eu.id }, '2024-01-10').totals).toMatchObject({ baseCurrency: 'RON', holdingsValue: 5500 });
+  });
+
+  it('un portofoliu rămas cu altă monedă (date vechi) se afișează tot în moneda din setări', () => {
+    const old = createPortfolio(db, user.id, { name: 'Vechi' });
+    db.prepare("UPDATE portfolios SET base_currency = 'USD' WHERE id = ?").run(old.id);
+    expect(getOverview(db, user.id, { portfolioId: old.id }, '2024-01-10').totals.baseCurrency).toBe('RON');
   });
 
   it('mută o poziție în alt portofoliu: costul se mută cu ea, iar banii doar la cerere', () => {
@@ -249,7 +333,7 @@ describe('portofolii în aplicație', () => {
 
   it('backup-ul păstrează portofoliile și apartenența fiecărei tranzacții', async () => {
     const tv = createBroker(db, user.id, { name: 'Tradeville' });
-    const pensie = createPortfolio(db, user.id, { name: 'Pensie', color: 'teal', icon: 'piggy-bank', baseCurrency: 'EUR' });
+    const pensie = createPortfolio(db, user.id, { name: 'Pensie', color: 'teal', icon: 'piggy-bank' });
     addPurchase(db, user.id, { portfolioId: pensie.id, asset: { type: 'stock', symbol: 'BRD.RO', currency: 'RON' }, brokerId: tv.id, date: '2024-01-02', quantity: 5, price: 18, fee: 0 });
     updateSettings(db, user.id, { activePortfolio: pensie.id });
 
@@ -262,11 +346,33 @@ describe('portofolii în aplicație', () => {
       const restored = listPortfolios(db, other.id);
       expect(restored.map((p) => [p.name, p.color, p.icon, p.baseCurrency])).toEqual([
         ['Principal', 'blue', 'wallet', 'RON'],
-        ['Pensie', 'teal', 'piggy-bank', 'EUR']
+        ['Pensie', 'teal', 'piggy-bank', 'RON']
       ]);
       const pensieCopy = restored.find((p) => p.name === 'Pensie');
       expect(listTransactions(db, other.id).map((t) => t.portfolioName)).toEqual(['Pensie']);
       expect(getSettings(db, other.id).activePortfolio).toBe(pensieCopy?.id);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('la restaurarea unui backup cu portofolii în monede diferite, toate primesc moneda din setările backup-ului', async () => {
+    createPortfolio(db, user.id, { name: 'Europa' });
+    const dir = mkdtempSync(join(tmpdir(), 'pf-backup-'));
+    try {
+      const file = join(dir, 'b.db');
+      createBackup(db, user.id, file);
+      // Ca într-un backup făcut de o versiune mai veche: setările în EUR, un portofoliu în USD.
+      const raw = new Database(file);
+      raw.exec("UPDATE settings SET base_currency = 'EUR'; UPDATE portfolios SET base_currency = 'USD' WHERE name = 'Europa'");
+      raw.close();
+      const other = await register(db, { username: 'pf-monede', password: 'parola-pf-789' });
+      restoreBackup(db, other.id, file);
+      expect(getSettings(db, other.id).baseCurrency).toBe('EUR');
+      expect(listPortfolios(db, other.id).map((p) => [p.name, p.baseCurrency])).toEqual([
+        ['Principal', 'EUR'],
+        ['Europa', 'EUR']
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

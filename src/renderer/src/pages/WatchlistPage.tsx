@@ -15,6 +15,7 @@ import { useApp, useLoad } from '../context/AppContext';
 import { dateTime, percent, price as fmtPrice, signedPercent } from '../lib/format';
 import { Badge, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Input, LoadError, Modal, Notice, PageSkeleton, Pnl, Segmented, MarketDot, Select, Spinner, TD, Textarea, TH, cx } from '../components/ui';
 import { TickerLogo } from '../components/TickerLogo';
+import { SymbolPreview, useNarrow } from '../components/SymbolPreview';
 import { Sparkline } from '../components/Sparkline';
 import { PurchaseForm } from '../components/PurchaseForm';
 import { AssetDetailModal, SymbolButton, type AssetRef } from '../components/AssetDetail';
@@ -386,7 +387,11 @@ function AddSymbol({ watchlistId, onAdded }: { watchlistId: number; onAdded: () 
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [adding, setAdding] = useState(false);
+  // Rezultatul de sub mouse (sau primul, pe telefon) primește graficul prețului în listă; un clic îl adaugă, ca înainte.
+  const [hovered, setHovered] = useState<SymbolSearchResult | null>(null);
   const seq = useRef(0);
+  const narrow = useNarrow();
+  const previewed = (hovered && results.includes(hovered) ? hovered : results[0]) ?? null;
 
   useEffect(() => {
     const q = query.trim();
@@ -458,19 +463,22 @@ function AddSymbol({ watchlistId, onAdded }: { watchlistId: number; onAdded: () 
           aria-controls="watch-results"
         />
         {open && (searching || results.length > 0) && (
-          <ul id="watch-results" role="listbox" className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-xl">
+          <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-line bg-surface shadow-xl">
+          <ul id="watch-results" role="listbox" className="max-h-60 overflow-y-auto py-1">
             {searching && results.length === 0 && (
               <li className="flex items-center gap-2 px-3 py-2 text-body text-ink-3">
                 <Spinner className="size-4" /> Se caută…
               </li>
             )}
             {results.map((r) => (
-              <li key={`${r.symbol}-${r.exchange}`} role="option" aria-selected={false}>
+              <li key={`${r.symbol}-${r.exchange}`} role="option" aria-selected={previewed === r}>
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setHovered(r)}
+                  onFocus={() => setHovered(r)}
                   onClick={() => void add({ symbol: r.symbol, type: r.type ?? type, name: r.name, currency: r.currency })}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2"
+                  className={cx('flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2', previewed === r && 'bg-surface-2/60')}
                 >
                   <TickerLogo symbol={r.symbol} type={r.type ?? type} size={22} />
                   <span className="w-24 shrink-0 text-body font-semibold text-ink">{r.symbol}</span>
@@ -481,6 +489,13 @@ function AddSymbol({ watchlistId, onAdded }: { watchlistId: number; onAdded: () 
               </li>
             ))}
           </ul>
+          {previewed && (previewed.type ?? type) !== 'bond' && (
+            // Focusul rămâne în câmp (lista nu se închide) cât timp se apasă pe perioade sau pe „Info”.
+            <div className="border-t border-line p-3" onMouseDown={(e) => e.preventDefault()}>
+              <SymbolPreview key={previewed.symbol} item={{ symbol: previewed.symbol, type: previewed.type ?? type, name: previewed.name, currency: previewed.currency, exchange: previewed.exchange }} compact={narrow} />
+            </div>
+          )}
+          </div>
         )}
       </div>
       <Select className="w-36!" value={type} onChange={(e) => setType(e.target.value as AssetType)} aria-label="Tipul instrumentului">
