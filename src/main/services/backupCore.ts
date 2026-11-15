@@ -43,6 +43,23 @@ const USER_TABLES = [
   'alert_events'
 ] as const;
 
+/**
+ * Cache-urile care se pot descărca oricând din nou (prețuri, istoric, cursuri BNR, evidența descărcărilor).
+ * Nu intră în pachetul de sincronizare, ca acesta să rămână mic; la restaurarea din sincronizare rămân cele locale.
+ * (Logo-urile și cache-ul de știri/raportări nu intră nici în backup.)
+ */
+export const SYNC_CACHE_TABLES = ['prices', 'price_history', 'history_sync', 'dividend_sync', 'fx_official', 'fx_official_sync'] as const;
+
+export interface BackupOptions {
+  /**
+   * Pachetul pentru sincronizare: fără cache-uri și fără dividendele aduse de provideri (doar cele introduse manual).
+   * La restaurare: cache-urile locale și dividendele de la provideri rămân neatinse.
+   */
+  sync?: boolean;
+}
+
+const isCache = (table: string): boolean => (SYNC_CACHE_TABLES as readonly string[]).includes(table);
+
 type Row = Record<string, unknown>;
 
 function insertRow(target: Db, table: string, row: Row): number {
@@ -54,7 +71,7 @@ function insertRow(target: Db, table: string, row: Row): number {
 }
 
 /** Umple `out` (o bază goală, deschisă de apelant) cu backup-ul utilizatorului. */
-export function buildBackup(db: Db, userId: number, out: Db): { transactions: number } {
+export function buildBackup(db: Db, userId: number, out: Db, options: BackupOptions = {}): { transactions: number } {
   const user = db.prepare('SELECT id, username, email, is_demo, created_at FROM users WHERE id = ?').get(userId) as
     | Row
     | undefined;
@@ -76,7 +93,9 @@ export function buildBackup(db: Db, userId: number, out: Db): { transactions: nu
       if (settings) insertRow(out, 'settings', { ...settings, last_price_update: null });
 
       for (const table of USER_TABLES) {
-        const rows = db.prepare(`SELECT * FROM ${table} WHERE user_id = ?`).all(userId) as Row[];
+        if (options.sync && isCache(table)) continue;
+        const onlyManual = options.sync && table === 'dividend_events' ? " AND source = 'manual'" : '';
+        const rows = db.prepare(`SELECT * FROM ${table} WHERE user_id = ?${onlyManual}`).all(userId) as Row[];
         for (const row of rows) insertRow(out, table, row);
         if (table === 'transactions') transactions = rows.length;
       }
@@ -89,7 +108,8 @@ export function buildBackup(db: Db, userId: number, out: Db): { transactions: nu
 export function restoreFrom(
   db: Db,
   userId: number,
-  src: Db
+  src: Db,
+  options: BackupOptions = {}
 ): { brokers: number; assets: number; transactions: number } {
   {
     try {
@@ -138,7 +158,9 @@ export function restoreFrom(
         'price_history',
         'history_sync'
       ]) {
-        db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+        if (options.sync && isCache(table)) continue;
+        const onlyManual = options.sync && table === 'dividend_events' ? " AND source = 'manual'" : '';
+        db.prepare(`DELETE FROM ${table} WHERE user_id = ?${onlyManual}`).run(userId);
       }
 
       // 2. Brokerii și activele primesc id-uri noi; păstrăm corespondența veche -> nouă.
@@ -293,14 +315,17 @@ export function restoreFrom(
       }
 
       // Dividendele (cele introduse manual și cele de la provideri) și propunerile respinse.
-      for (const { id: _did, ...row } of read('dividend_events')) insertRow(db, 'dividend_events', { ...row, user_id: userId });
+      for (const { id: _did, ...row } of read('dividend_events')) {
+        if (options.sync && row.source !== 'manual') continue;
+        insertRow(db, 'dividend_events', { ...row, user_id: userId });
+      }
       for (const row of read('dividend_dismissals')) {
         const assetId = assetIds.get(row.asset_id as number);
         if (assetId !== undefined) insertRow(db, 'dividend_dismissals', { ...row, user_id: userId, asset_id: assetId });
       }
 
       // 4. Prețurile, dividendele și cursurile BNR salvate (ca aplicația să funcționeze și fără internet).
-      for (const table of ['prices', 'price_history', 'history_sync', 'dividend_sync', 'fx_official', 'fx_official_sync']) {
+      for (const table of options.sync ? [] : SYNC_CACHE_TABLES) {
         for (const row of read(table)) insertRow(db, table, { ...row, user_id: userId });
       }
 

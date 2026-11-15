@@ -48,6 +48,10 @@ import { getNews } from './services/news';
 import { earningsSnapshots, getEarningsCalendar, getFinancials, latestReportDates, upcomingReports } from './services/financials';
 import { researchSymbols } from './services/research';
 import { createResearchSources } from './research/sources';
+import type { BackupOptions } from './services/backupCore';
+import { SyncEngine, type SyncConfig } from './services/sync';
+import type { SyncKeys } from './services/syncCrypto';
+import { desktopDeviceLabel, SYNC_URL, type SyncStatus } from '@shared/sync';
 
 export interface IpcContext {
   db: Db;
@@ -74,8 +78,8 @@ export interface Platform {
   notify(event: AlertEventView, sound: boolean): void;
   readToken(): string | null;
   writeToken(token: string | null): void;
-  createBackup(db: Db, userId: number): { data: Uint8Array; transactions: number };
-  restoreBackup(db: Db, userId: number, data: Uint8Array): { brokers: number; assets: number; transactions: number };
+  createBackup(db: Db, userId: number, options?: BackupOptions): { data: Uint8Array; transactions: number };
+  restoreBackup(db: Db, userId: number, data: Uint8Array, options?: BackupOptions): { brokers: number; assets: number; transactions: number };
   info(): AppInfo;
   /** Deschide o adresă https în browserul sistemului (pe web, pagina o deschide deja în gestul utilizatorului). */
   openExternal(url: string): Promise<void>;
@@ -96,7 +100,15 @@ export interface BackendContext {
   secrets: SecretBox;
   platform: Platform;
   send: (event: AppEvent) => void;
+  /** Sincronizarea contului între dispozitive; fără ea (ex. în teste) contul rămâne doar local. */
+  sync?: SyncConfig;
 }
+
+/** Apelurile după care nu are rost să verificăm dacă s-au schimbat datele (doar citesc). */
+const NO_SYNC_GROUPS = new Set(['auth', 'sync', 'app', 'logos', 'news', 'financials', 'prices']);
+const READ_ONLY =
+  /^(list|get|status|info|overview|history|performance|periodProfit|projection|risk|compare|items|calendar|symbols|center|dueCount|planFor|batches|templates|report|search|lookup|previewMove|positionIds|preview|discard|exportCsv|exportPdf|run)$/;
+const SYNC_OFF: SyncStatus = { state: 'off', lastSyncAt: null, device: null, message: null };
 
 export interface Backend {
   dispatch(path: unknown, args: unknown): Promise<IpcResult<unknown>>;
@@ -179,6 +191,35 @@ export function createBackend(ctx: BackendContext): Backend {
     }
   };
 
+  // --- sincronizarea între dispozitive -------------------------------------
+
+  const sync = ctx.sync
+    ? new SyncEngine(
+        {
+          db,
+          secrets,
+          createSnapshot: (userId) => platform.createBackup(db, userId, { sync: true }).data,
+          restoreSnapshot: (userId, data) => void platform.restoreBackup(db, userId, data, { sync: true }),
+          ...(platform.sealSecret ? { sealSecret: (plain: string) => platform.sealSecret!(plain) } : {}),
+          onStatus: (status) => send({ type: 'sync:status', payload: status }),
+          onRestored: (userId) => {
+            if (userId !== currentUserId) return;
+            // Datele au venit de pe celălalt dispozitiv: ecranele se reîncarcă, prețurile noilor active se aduc.
+            pendingImport = null;
+            startAutoRefresh();
+            send({ type: 'data:changed' });
+          }
+        },
+        ctx.sync
+      )
+    : null;
+
+  /** După autentificarea cu parolă: cheile de sincronizare se derivă în fundal. */
+  const startSync = (user: User, password: string, keys: SyncKeys | null): void => {
+    if (!sync) return;
+    void sync.startWithPassword(user, password, keys).catch((err) => console.error('[sync] pornirea a eșuat:', err));
+  };
+
   // --- sesiune ------------------------------------------------------------
 
   const readToken = (): string | null => platform.readToken();
@@ -200,6 +241,7 @@ export function createBackend(ctx: BackendContext): Backend {
   const closeSession = (): void => {
     pendingImport = null;
     stopAutoRefresh();
+    sync?.stop();
     clearToken();
     platform.lockSecrets?.();
     currentUserId = null;
@@ -264,29 +306,88 @@ export function createBackend(ctx: BackendContext): Backend {
         await platform.unlockSecrets?.(user.id, null, true);
         currentUserId = user.id;
         startAutoRefresh();
+        sync?.start(user); // cu cheile de sincronizare salvate la autentificare
         return user;
       },
       async register(input) {
+        const { username } = auth.checkRegister(db, input);
+        // Contul se creează întâi online: un nume luat de alt cont este refuzat aici. Fără internet, se creează online mai târziu.
+        let keys: SyncKeys | null = null;
+        let linked = false;
+        if (sync && SyncEngine.canSync(username)) {
+          keys = await sync.derive(username, input.password);
+          linked = (await sync.registerOnline(keys)) === 'ok';
+        }
         const user = await auth.register(db, input);
         await platform.unlockSecrets?.(user.id, input.password, false);
-        return openSession(user, false);
+        if (sync && keys) await sync.storeKeys(user.id, keys, linked);
+        openSession(user, false);
+        startSync(user, input.password, keys);
+        return user;
       },
       async login(input) {
-        const user = await auth.verifyLogin(db, input.username, input.password);
-        await platform.unlockSecrets?.(user.id, input.password, !!input.remember);
-        return openSession(user, !!input.remember);
+        const username = String(input?.username ?? '').trim();
+        const password = String(input?.password ?? '');
+        const remember = !!input?.remember;
+        const local = auth.findUserByName(db, username);
+        let user: User;
+        let keys: SyncKeys | null = null;
+        if (!local && sync && SyncEngine.canSync(username)) {
+          // Contul nu există pe acest dispozitiv: îl căutăm online și, dacă parola e bună, îl aducem cu toate datele.
+          keys = await sync.derive(username, password);
+          const remote = await sync.fetchForLogin(keys);
+          user = await auth.register(db, { username, password });
+          await platform.unlockSecrets?.(user.id, password, remember);
+          await sync.adopt(user.id, keys, remote);
+        } else {
+          try {
+            user = await auth.verifyLogin(db, username, password);
+          } catch (err) {
+            // Parola a fost schimbată pe celălalt dispozitiv: dacă serverul o confirmă, devine și parola de aici.
+            if (!local || local.isDemo || !sync || !SyncEngine.canSync(local.username) || !sync.isLinked(local.id)) throw err;
+            keys = await sync.derive(local.username, password);
+            if (!(await sync.checkOnline(keys))) throw err;
+            await auth.setPassword(db, local.id, password);
+            user = local;
+          }
+          await platform.unlockSecrets?.(user.id, password, remember);
+        }
+        openSession(user, remember);
+        startSync(user, password, keys);
+        return user;
       },
       async loginDemo() {
-        return openSession(await ensureDemoAccount(db), false);
+        const user = openSession(await ensureDemoAccount(db), false);
+        sync?.start(user); // contul demo nu se sincronizează niciodată
+        return user;
       },
       async logout() {
         closeSession();
       },
       async changePassword(oldPassword, newPassword) {
-        await auth.changePassword(db, uid(), oldPassword, newPassword);
-        await platform.changeSecretsPassword?.(uid(), oldPassword, newPassword);
+        const userId = uid();
+        const user = auth.getUser(db, userId);
+        if (!user) throw new AppError('Contul nu a fost găsit.');
+        await auth.checkPasswordChange(db, userId, oldPassword, newPassword);
+        // Întâi pe server (pachetul se recriptează cu cheia nouă); fără internet, parola nu se schimbă nicăieri.
+        const synced = sync ? await sync.changePassword(user, newPassword) : null;
+        await auth.changePassword(db, userId, oldPassword, newPassword);
+        await platform.changeSecretsPassword?.(userId, oldPassword, newPassword);
+        if (sync && synced) {
+          await sync.storeKeys(userId, synced.keys, synced.linked);
+          if (!synced.linked) void sync.now();
+        }
         // Toate sesiunile salvate au fost invalidate; cea curentă rămâne deschisă până la ieșire.
         platform.writeToken(null);
+      }
+    },
+    sync: {
+      status: async () => (uid(), sync ? sync.status() : SYNC_OFF),
+      now: async () => (uid(), sync ? sync.now() : SYNC_OFF),
+      async resolve(choice) {
+        uid();
+        if (choice !== 'local' && choice !== 'remote') throw new AppError('Alegere necunoscută.');
+        return sync ? sync.resolve(choice) : SYNC_OFF;
       }
     },
     brokers: {
@@ -631,7 +732,10 @@ export function createBackend(ctx: BackendContext): Backend {
       const target = (api as unknown as Record<string, Record<string, (...a: unknown[]) => Promise<unknown>>>)[group];
       const fn = target && Object.hasOwn(target, method) ? target[method] : undefined;
       if (typeof fn !== 'function') throw new AppError('Operațiune necunoscută.');
-      return { ok: true, data: await fn(...(Array.isArray(args) ? args : [])) };
+      const data = await fn(...(Array.isArray(args) ? args : []));
+      // O posibilă modificare: sincronizarea compară amprenta datelor peste câteva secunde (fără rețea dacă nu s-a schimbat nimic).
+      if (sync && !NO_SYNC_GROUPS.has(group) && !READ_ONLY.test(method)) sync.touched();
+      return { ok: true, data };
     } catch (err) {
       if (err instanceof AppError) return { ok: false, error: err.message };
       console.error(`[ipc] ${String(path)} a eșuat:`, err);
@@ -639,7 +743,13 @@ export function createBackend(ctx: BackendContext): Backend {
     }
   };
 
-  return { dispatch, dispose: stopAutoRefresh };
+  return {
+    dispatch,
+    dispose: () => {
+      stopAutoRefresh();
+      sync?.stop();
+    }
+  };
 }
 
 // --- partea de desktop (Electron) -----------------------------------------
@@ -731,22 +841,22 @@ function electronPlatform(ctx: IpcContext): Platform {
       if (token === null) rmSync(tokenFile, { force: true });
       else writeFileSync(tokenFile, secrets.encrypt(token), { mode: 0o600 });
     },
-    createBackup(db, userId) {
+    createBackup(db, userId, options) {
       const dir = mkdtempSync(join(tmpdir(), 'portofoliu-backup-'));
       try {
         const file = join(dir, 'backup.db');
-        const { transactions } = createBackup(db, userId, file);
+        const { transactions } = createBackup(db, userId, file, options);
         return { data: readFileSync(file), transactions };
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     },
-    restoreBackup(db, userId, data) {
+    restoreBackup(db, userId, data, options) {
       const dir = mkdtempSync(join(tmpdir(), 'portofoliu-restore-src-'));
       try {
         const file = join(dir, 'backup.db');
         writeFileSync(file, data);
-        return restoreBackup(db, userId, file);
+        return restoreBackup(db, userId, file, options);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -763,7 +873,9 @@ export function registerIpc(ctx: IpcContext): { dispose: () => void } {
     send: (event) => {
       const win = ctx.getWindow();
       if (win && !win.isDestroyed()) win.webContents.send(IPC_EVENT, event);
-    }
+    },
+    // Din procesul principal (Node): cererile pleacă fără antet Origin, cum acceptă serverul pentru desktop.
+    sync: { url: SYNC_URL, device: desktopDeviceLabel(process.platform) }
   });
   ipcMain.handle(IPC_CALL, (_event, path: unknown, args: unknown) => backend.dispatch(path, args));
   return {

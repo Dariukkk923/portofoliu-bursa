@@ -37,8 +37,11 @@ export function createWebPlatform(o: WebPlatformOptions): Platform {
   let secretsUser: number | null = null;
   let backupUser: number | null = null;
 
-  const storedKeys = (userId: number): string[] =>
-    (o.db.prepare('SELECT encrypted_key FROM api_keys WHERE user_id = ?').all(userId) as { encrypted_key: string }[]).map((r) => r.encrypted_key);
+  /** Secretele criptate ale utilizatorului: cheile API și cheile de sincronizare (decriptate la deblocare). */
+  const storedKeys = (userId: number): string[] => [
+    ...(o.db.prepare('SELECT encrypted_key FROM api_keys WHERE user_id = ?').all(userId) as { encrypted_key: string }[]).map((r) => r.encrypted_key),
+    ...(o.db.prepare('SELECT creds FROM sync_state WHERE user_id = ? AND creds IS NOT NULL').all(userId) as { creds: string }[]).map((r) => r.creds)
+  ];
 
   return {
     async saveFile(_title, defaultName, _filters, data) {
@@ -62,11 +65,11 @@ export function createWebPlatform(o: WebPlatformOptions): Platform {
       token = next;
       void (next === null ? o.kv.del('session-token') : o.kv.set('session-token', next));
     },
-    createBackup(db, userId) {
-      backupUser = userId;
-      return createWebBackup(o.SQL, db, userId);
+    createBackup(db, userId, options) {
+      if (!options?.sync) backupUser = userId;
+      return createWebBackup(o.SQL, db, userId, options);
     },
-    restoreBackup: (db, userId, data) => restoreWebBackup(o.SQL, db, userId, data),
+    restoreBackup: (db, userId, data, options) => restoreWebBackup(o.SQL, db, userId, data, options),
     onBackupSaved() {
       if (backupUser !== null) void o.kv.set(`last-backup:${backupUser}`, Date.now());
     },

@@ -7,6 +7,13 @@ compatibility_date = "2025-01-01"
 [vars]
 ALLOWED_ORIGIN = "https://dariukkk923.github.io"
 
-# Nu există KV, D1, R2, cron, analytics sau loguri: proxy-ul nu păstrează nimic.
+# Sincronizarea conturilor (/sync/*): tabelele din schema.sql. Baza păstrează doar numele de utilizator,
+# sha256 al cheii de autentificare, momente de timp și copii criptate end-to-end.
+[[d1_databases]]
+binding = "SYNC_DB"
+database_name = "portofoliu-sync"
+database_id = "b0765b35-6a91-4782-99a3-4be677ce46d4"
+
+# Fără KV, R2, cron, analytics sau loguri.
 [observability]
 enabled = false

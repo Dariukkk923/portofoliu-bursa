@@ -8,6 +8,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Broker, Portfolio, PortfolioFilter, PortfolioScope, PriceStatus, Settings, SettingsUpdate, Theme, User } from '@shared/types';
+import type { SyncChoice, SyncStatus } from '@shared/sync';
 import { api, errorMessage, onAppEvent } from '../api';
 
 export interface Toast {
@@ -35,6 +36,11 @@ interface AppState {
   /** Filtrul global (broker, tip de activ) împreună cu portofoliul selectat. */
   filter: PortfolioFilter;
   priceStatus: PriceStatus | null;
+  /** Starea sincronizării contului între dispozitive. */
+  syncStatus: SyncStatus | null;
+  syncNow: () => Promise<void>;
+  /** Alegerea la conflict: datele de pe acest dispozitiv sau de pe celălalt. */
+  resolveSync: (choice: SyncChoice) => Promise<void>;
   dataVersion: number;
   toasts: Toast[];
   setUser: (user: User | null) => void;
@@ -80,6 +86,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [baseFilter, setFilter] = useState<PortfolioFilter>({});
   const [priceStatus, setPriceStatus] = useState<PriceStatus | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
@@ -119,6 +126,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUserState(next);
     setFilter({});
     setPriceStatus(null);
+    setSyncStatus(null);
     setToasts([]); // notificările contului anterior nu trebuie să rămână pe ecran
     if (!next) {
       setSettings(null);
@@ -134,6 +142,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPriceStatus(p);
       })
       .catch(() => undefined);
+    void api.sync.status().then(setSyncStatus, () => undefined);
   }, []);
 
   // La pornire: există o sesiune activă (inclusiv „ține-mă minte”)? Altfel se afișează ecranul de login.
@@ -149,6 +158,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () =>
       onAppEvent((event) => {
         if (event.type === 'prices:status') setPriceStatus(event.payload);
+        else if (event.type === 'sync:status') setSyncStatus(event.payload);
         else if (event.type === 'data:changed') {
           bumpData();
           void reloadBrokers().catch(() => undefined);
@@ -202,6 +212,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [notify]
   );
 
+  const syncNow = useCallback(async () => {
+    try {
+      setSyncStatus(await api.sync.now());
+    } catch (err) {
+      notify('error', errorMessage(err));
+    }
+  }, [notify]);
+
+  const resolveSync = useCallback(
+    async (choice: SyncChoice) => {
+      try {
+        setSyncStatus(await api.sync.resolve(choice));
+      } catch (err) {
+        notify('error', errorMessage(err));
+      }
+    },
+    [notify]
+  );
+
+  // Revenirea în aplicație (ex. pe telefon, după ce ai lucrat pe calculator): verificăm imediat dacă sunt date noi.
+  const signedIn = !!user;
+  useEffect(() => {
+    if (!signedIn) return;
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') void api.sync.now().then(setSyncStatus, () => undefined);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [signedIn]);
+
   const refreshPrices = useCallback(async () => {
     try {
       const result = await api.prices.refresh();
@@ -227,6 +267,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       reloadPortfolios,
       filter,
       priceStatus,
+      syncStatus,
+      syncNow,
+      resolveSync,
       dataVersion,
       toasts,
       setUser,
@@ -256,6 +299,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       reloadPortfolios,
       filter,
       priceStatus,
+      syncStatus,
+      syncNow,
+      resolveSync,
       dataVersion,
       toasts,
       setUser,

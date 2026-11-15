@@ -5,20 +5,26 @@
 import type { SqlJsStatic } from 'sql.js';
 import type { Db } from '@main/db/database';
 import { AppError } from '@main/services/common';
-import { buildBackup, restoreFrom } from '@main/services/backupCore';
+import { buildBackup, restoreFrom, type BackupOptions } from '@main/services/backupCore';
 import { asDb, SqlJsConnection } from './sqljs';
 
-export function createWebBackup(SQL: SqlJsStatic, db: Db, userId: number): { data: Uint8Array; transactions: number } {
+export function createWebBackup(SQL: SqlJsStatic, db: Db, userId: number, options: BackupOptions = {}): { data: Uint8Array; transactions: number } {
   const out = new SqlJsConnection(new SQL.Database());
   try {
-    const { transactions } = buildBackup(db, userId, asDb(out));
+    const { transactions } = buildBackup(db, userId, asDb(out), options);
     return { data: out.serialize(), transactions };
   } finally {
     out.close();
   }
 }
 
-export function restoreWebBackup(SQL: SqlJsStatic, db: Db, userId: number, data: Uint8Array): { brokers: number; assets: number; transactions: number } {
+export function restoreWebBackup(
+  SQL: SqlJsStatic,
+  db: Db,
+  userId: number,
+  data: Uint8Array,
+  options: BackupOptions = {}
+): { brokers: number; assets: number; transactions: number } {
   let src: SqlJsConnection;
   try {
     src = new SqlJsConnection(new SQL.Database(data));
@@ -26,7 +32,7 @@ export function restoreWebBackup(SQL: SqlJsStatic, db: Db, userId: number, data:
     throw new AppError('Fișierul ales nu este un backup creat de această aplicație.');
   }
   try {
-    return restoreFrom(db, userId, asDb(src));
+    return restoreFrom(db, userId, asDb(src), options);
   } finally {
     src.close();
   }

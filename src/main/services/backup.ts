@@ -8,16 +8,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Db } from '../db/database';
 import { AppError, assert } from './common';
-import { buildBackup, restoreFrom } from './backupCore';
+import { buildBackup, restoreFrom, type BackupOptions } from './backupCore';
 
 /** Scrie backup-ul utilizatorului în `destPath` (suprascrie fișierul dacă există). */
-export function createBackup(db: Db, userId: number, destPath: string): { transactions: number } {
+export function createBackup(db: Db, userId: number, destPath: string, options: BackupOptions = {}): { transactions: number } {
   for (const suffix of ['', '-wal', '-shm', '-journal']) rmSync(destPath + suffix, { force: true });
   const out = new Database(destPath);
   try {
     out.pragma('journal_mode = DELETE'); // un singur fișier, ușor de copiat
     out.pragma('foreign_keys = ON');
-    return buildBackup(db, userId, out);
+    return buildBackup(db, userId, out, options);
   } finally {
     out.close();
   }
@@ -27,7 +27,8 @@ export function createBackup(db: Db, userId: number, destPath: string): { transa
 export function restoreBackup(
   db: Db,
   userId: number,
-  srcPath: string
+  srcPath: string,
+  options: BackupOptions = {}
 ): { brokers: number; assets: number; transactions: number } {
   assert(existsSync(srcPath), 'Fișierul de backup nu a fost găsit.');
 
@@ -43,7 +44,7 @@ export function restoreBackup(
     } catch {
       throw new AppError('Fișierul ales nu este un backup creat de această aplicație.');
     }
-    return restoreFrom(db, userId, src);
+    return restoreFrom(db, userId, src, options);
   } finally {
     src?.close();
     rmSync(tmpDir, { recursive: true, force: true });

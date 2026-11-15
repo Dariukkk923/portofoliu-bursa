@@ -543,6 +543,26 @@ export const MIGRATIONS: Migration[] = [
       );
       CREATE INDEX idx_alert_events_user ON alert_events (user_id, id);
     `
+  },
+  {
+    version: 14,
+    name: 'sincronizarea contului între dispozitive',
+    sql: `
+      -- Starea sincronizării pe acest dispozitiv (nu intră în backup și nici în pachetul sincronizat):
+      --  creds   = cheile derivate din parolă (criptate cu cutia de secrete), ca sincronizarea să meargă și la „ține-mă minte”;
+      --  linked  = serverul a confirmat contul online pentru aceste chei;
+      --  version = versiunea de pe server la ultima sincronizare; hash = amprenta datelor locale în acel moment.
+      CREATE TABLE sync_state (
+        user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        creds         TEXT,
+        linked        INTEGER NOT NULL DEFAULT 0,
+        version       INTEGER NOT NULL DEFAULT 0,
+        hash          TEXT,
+        synced_at     INTEGER,
+        status        TEXT NOT NULL DEFAULT 'off',
+        remote_device TEXT
+      );
+    `
   }
 ];
 

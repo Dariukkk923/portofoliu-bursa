@@ -43,6 +43,7 @@ export const api: Api = {
   alerts: group('alerts'),
   backup: group('backup'),
   app: group('app'),
+  sync: group('sync'),
   news: group('news'),
   financials: group('financials')
 };

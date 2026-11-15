@@ -16,6 +16,7 @@ import { createWebPlatform } from './platform';
 import { createRoutedFetch, DEFAULT_PROXY_URL, normalizeProxyUrl, proxyConfig } from './net';
 import { createWebYahooClient } from './yahooWeb';
 import type { FromWorker, PickedFile, ToWorker, WebConfig } from './protocol';
+import { SYNC_URL, webDeviceLabel } from '@shared/sync';
 
 installBuffer();
 
@@ -97,7 +98,14 @@ async function boot(): Promise<{ backend: Backend; kv: Kv; conn: SqlJsConnection
     },
     initialToken: (await kv.get<string>('session-token')) ?? null
   });
-  const backend = createBackend({ db, secrets, platform, send: (event) => post({ kind: 'event', event }) });
+  const backend = createBackend({
+    db,
+    secrets,
+    platform,
+    send: (event) => post({ kind: 'event', event }),
+    // Direct la server (nu prin proxy-ul ales în Setări): conturile online stau pe serverul publicat al aplicației.
+    sync: { url: DEFAULT_PROXY_URL ?? SYNC_URL, device: webDeviceLabel(self.navigator.userAgent), fetch: (input, init) => fetch(input, init) }
+  });
   return { backend, kv, conn, flush };
 }
 

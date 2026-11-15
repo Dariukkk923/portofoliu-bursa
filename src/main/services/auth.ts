@@ -35,8 +35,8 @@ function validatePassword(password: unknown): asserts password is string {
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 
-/** Creează un cont nou, cu setările implicite. */
-export async function register(db: Db, input: RegisterInput, options: { isDemo?: boolean } = {}): Promise<User> {
+/** Verifică datele contului nou (fără să-l creeze); întoarce numele și emailul curățate. */
+export function checkRegister(db: Db, input: RegisterInput): { username: string; email: string | null } {
   const username = String(input.username ?? '').trim();
   const email = input.email ? String(input.email).trim() : null;
   assert(
@@ -48,6 +48,12 @@ export async function register(db: Db, input: RegisterInput, options: { isDemo?:
 
   const exists = db.prepare('SELECT 1 FROM users WHERE username = ?').get(username);
   assert(!exists, 'Există deja un cont cu acest nume de utilizator.');
+  return { username, email };
+}
+
+/** Creează un cont nou, cu setările implicite. */
+export async function register(db: Db, input: RegisterInput, options: { isDemo?: boolean } = {}): Promise<User> {
+  const { username, email } = checkRegister(db, input);
 
   const hash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
   const create = db.transaction(() => {
@@ -113,8 +119,8 @@ export function revokeAllTokens(db: Db, userId: number): void {
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
 }
 
-/** Schimbă parola după verificarea celei vechi și invalidează sesiunile salvate. */
-export async function changePassword(db: Db, userId: number, oldPassword: string, newPassword: string): Promise<void> {
+/** Verifică o schimbare de parolă (parola actuală corectă, cea nouă validă), fără s-o aplice. */
+export async function checkPasswordChange(db: Db, userId: number, oldPassword: string, newPassword: string): Promise<void> {
   const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as
     | { password_hash: string }
     | undefined;
@@ -123,7 +129,21 @@ export async function changePassword(db: Db, userId: number, oldPassword: string
   assert(ok, 'Parola actuală este incorectă.');
   validatePassword(newPassword);
   assert(newPassword !== oldPassword, 'Parola nouă trebuie să fie diferită de cea actuală.');
-  const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+}
+
+/** Schimbă parola după verificarea celei vechi și invalidează sesiunile salvate. */
+export async function changePassword(db: Db, userId: number, oldPassword: string, newPassword: string): Promise<void> {
+  await checkPasswordChange(db, userId, oldPassword, newPassword);
+  await setPassword(db, userId, newPassword);
+}
+
+/**
+ * Pune o parolă nouă fără s-o ceară pe cea veche și invalidează sesiunile salvate.
+ * Folosită doar când parola a fost confirmată de serverul de sincronizare (schimbată pe alt dispozitiv).
+ */
+export async function setPassword(db: Db, userId: number, password: string): Promise<void> {
+  validatePassword(password);
+  const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   db.transaction(() => {
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
     revokeAllTokens(db, userId);

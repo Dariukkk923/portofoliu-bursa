@@ -1,6 +1,6 @@
 /** Ecranul de autentificare: login, înregistrare și intrarea în contul demo. */
 import { useState, type FormEvent } from 'react';
-import { ChartNoAxesCombined, FlaskConical, ShieldCheck } from 'lucide-react';
+import { ChartNoAxesCombined, FlaskConical, ShieldCheck, Smartphone } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import { useApp } from '../context/AppContext';
 import { Button, Field, Input, Notice } from '../components/ui';
@@ -116,6 +116,11 @@ export function AuthPage() {
 
             {error && <Notice tone="loss">{error}</Notice>}
 
+            <p className="flex items-center gap-1.5 text-xs text-ink-3">
+              <Smartphone className="size-3.5 shrink-0" aria-hidden />
+              Același cont merge pe calculator și pe telefon.
+            </p>
+
             <Button type="submit" variant="primary" loading={busy === 'form'} disabled={busy !== null} className="w-full">
               {mode === 'login' ? 'Intră în cont' : 'Creează contul'}
             </Button>
@@ -135,7 +140,7 @@ export function AuthPage() {
 
         <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-ink-3">
           <ShieldCheck className="size-3.5" aria-hidden />
-          Datele rămân doar pe acest calculator. Parola se păstrează ca hash.
+          Datele se sincronizează criptat: serverul nu le poate citi. Parola se păstrează ca hash.
         </p>
       </div>
     </div>

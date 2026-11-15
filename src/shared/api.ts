@@ -74,6 +74,7 @@ import type {
   NewsFilter,
   ResearchSymbol
 } from './types';
+import type { SyncChoice, SyncStatus } from './sync';
 
 export interface Api {
   auth: {
@@ -258,6 +259,14 @@ export interface Api {
   app: {
     info(): Promise<AppInfo>;
   };
+  /** Sincronizarea contului între calculator și telefon (automată; aici doar starea și comenzile manuale). */
+  sync: {
+    status(): Promise<SyncStatus>;
+    /** Sincronizează imediat și întoarce starea de după. */
+    now(): Promise<SyncStatus>;
+    /** La conflict: 'local' păstrează datele de pe acest dispozitiv, 'remote' pe cele de pe celălalt. */
+    resolve(choice: SyncChoice): Promise<SyncStatus>;
+  };
   news: {
     /** Simbolurile pentru care există știri: activele deținute și cele din watchlist. */
     symbols(): Promise<ResearchSymbol[]>;
@@ -288,7 +297,9 @@ export type AppEvent =
   /** Au sosit logo-uri noi pentru simbolurile date. */
   | { type: 'logos:changed'; payload: string[] }
   /** Au sunat alerte noi (centrul de notificări trebuie reîncărcat). */
-  | { type: 'alerts:triggered'; payload: AlertEventView[] };
+  | { type: 'alerts:triggered'; payload: AlertEventView[] }
+  /** Starea sincronizării s-a schimbat (inclusiv un conflict de rezolvat). */
+  | { type: 'sync:status'; payload: SyncStatus };
 
 /** Plicul răspunsului IPC: erorile ajung în interfață ca text, nu ca excepții serializate. */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string };

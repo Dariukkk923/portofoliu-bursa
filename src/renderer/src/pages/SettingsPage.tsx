@@ -8,6 +8,7 @@ import { api, errorMessage } from '../api';
 import { useApp, useLoad } from '../context/AppContext';
 import { Badge, Button, Card, ConfirmDialog, Field, Input, Notice, Segmented, Select } from '../components/ui';
 import { WebSettingsExtras } from '@/webExtras';
+import { SyncCard } from '../components/sync';
 
 /** Un rând de setare: etichetă și explicație în stânga, controlul în dreapta. */
 function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
@@ -256,6 +257,8 @@ export function SettingsPage() {
         <ApiKeyRow provider="polygon" />
         <p className="pt-3 text-xs text-ink-3">Cheile sunt salvate criptat pe acest calculator, separat pentru fiecare utilizator, și nu sunt afișate după salvare.</p>
       </Card>
+
+      <SyncCard />
 
       <PasswordCard />
 

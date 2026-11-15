@@ -21,6 +21,7 @@ import { TaxReportPage } from './pages/TaxReportPage';
 import { NewsPage } from './pages/NewsPage';
 import { resetLogos } from './lib/logos';
 import { SettingsPage } from './pages/SettingsPage';
+import { SyncConflictPrompt } from './components/sync';
 
 export function App() {
   return (
@@ -88,6 +89,7 @@ function Workspace() {
       {page === 'portfolios' && <PortfoliosPage onOpen={() => setPage('dashboard')} />}
       {page === 'brokers' && <BrokersPage />}
       {page === 'settings' && <SettingsPage />}
+      <SyncConflictPrompt />
     </Layout>
   );
 }

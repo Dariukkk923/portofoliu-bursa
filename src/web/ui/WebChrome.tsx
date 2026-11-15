@@ -118,7 +118,7 @@ export function WebChrome({ subscribeUpdate, getUpdate }: { subscribeUpdate: (l:
       )}
       {backupMsg && (
         <Banner tone="warn" icon={<TriangleAlert className="size-4" aria-hidden />} onClose={() => setBackupMsg(null)}>
-          {backupMsg} Salvează un backup din Setări. Datele sunt doar pe acest telefon.
+          {backupMsg} Salvează un backup din Setări.
         </Banner>
       )}
     </div>
